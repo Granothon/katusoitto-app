@@ -40,6 +40,12 @@ let rendering = false;
 let pendingRenderPage = null;
 
 /*
+ * Two-page spread: show two pages side by side when the
+ * viewport is wide enough. Set by renderPage().
+ */
+let twoPageMode = false;
+
+/*
  * PDF zoom.
  *
  * A value of 1 means Fit page mode.
@@ -1120,6 +1126,23 @@ async function loadPdf(file) {
  * Rendering the PDF
  */
 
+function getSpreadStart(page) {
+  return page % 2 === 1
+    ? page
+    : page - 1;
+}
+
+function getVisibleEnd() {
+  if (!twoPageMode || !currentPdf) {
+    return currentPage;
+  }
+
+  return Math.min(
+    getSpreadStart(currentPage) + 1,
+    currentPdf.numPages
+  );
+}
+
 async function renderPage(pageNumber) {
   if (!currentPdf) {
     return;
@@ -1135,108 +1158,146 @@ async function renderPage(pageNumber) {
   rendering = true;
 
   try {
+    const pageCount = currentPdf.numPages;
+
     currentPage =
       Math.max(
         1,
-        Math.min(
-          pageNumber,
-          currentPdf.numPages
-        )
+        Math.min(pageNumber, pageCount)
       );
 
-    const page =
-      await currentPdf.getPage(
-        currentPage
-      );
+    const probePage =
+      await currentPdf.getPage(currentPage);
 
-    const originalViewport =
-      page.getViewport({
-        scale: 1
-      });
+    const baseViewport =
+      probePage.getViewport({ scale: 1 });
 
     const availableWidth =
-      Math.max(
-        100,
-        pdfArea.clientWidth - 20
-      );
+      Math.max(100, pdfArea.clientWidth - 20);
 
     const availableHeight =
-      Math.max(
-        100,
-        pdfArea.clientHeight - 20
-      );
+      Math.max(100, pdfArea.clientHeight - 20);
 
-    const widthScale =
-      availableWidth /
-      originalViewport.width;
+    const gap = 14;
 
-    const heightScale =
-      availableHeight /
-      originalViewport.height;
+    /*
+     * Show two pages side by side when the area is wide
+     * enough to fit both at full height.
+     */
+    const heightFitScale =
+      availableHeight / baseViewport.height;
 
-    const fitPageScale =
-      Math.min(
-        widthScale,
-        heightScale
-      );
+    const twoUp =
+      pageCount >= 2 &&
+      2 * baseViewport.width * heightFitScale + gap <=
+        availableWidth;
 
-    const displayScale =
-      fitPageScale *
-      pdfZoom;
+    twoPageMode = twoUp;
+
+    const spreadStart =
+      twoUp ? getSpreadStart(currentPage) : currentPage;
+
+    const leftPage =
+      spreadStart === currentPage
+        ? probePage
+        : await currentPdf.getPage(spreadStart);
+
+    const rightPage =
+      twoUp && spreadStart + 1 <= pageCount
+        ? await currentPdf.getPage(spreadStart + 1)
+        : null;
+
+    const fitScale =
+      twoUp
+        ? Math.min(
+            (availableWidth - gap) /
+              (2 * baseViewport.width),
+            availableHeight / baseViewport.height
+          )
+        : Math.min(
+            availableWidth / baseViewport.width,
+            availableHeight / baseViewport.height
+          );
+
+    const displayScale = fitScale * pdfZoom;
 
     const pixelRatio =
-      Math.min(
-        window.devicePixelRatio || 1,
-        2
+      Math.min(window.devicePixelRatio || 1, 2);
+
+    const pageDisplayWidth =
+      Math.floor(baseViewport.width * displayScale);
+
+    const pageDisplayHeight =
+      Math.floor(baseViewport.height * displayScale);
+
+    const pageRenderWidth =
+      Math.floor(
+        baseViewport.width * displayScale * pixelRatio
       );
 
-    const displayViewport =
-      page.getViewport({
-        scale: displayScale
-      });
+    const pageRenderHeight =
+      Math.floor(
+        baseViewport.height * displayScale * pixelRatio
+      );
 
-    const renderViewport =
-      page.getViewport({
-        scale:
-          displayScale *
-          pixelRatio
-      });
+    const gapRender =
+      rightPage ? Math.round(gap * pixelRatio) : 0;
+
+    const gapDisplay = rightPage ? gap : 0;
 
     const context =
-      pdfCanvas.getContext(
-        "2d",
-        {
-          alpha: false
-        }
-      );
+      pdfCanvas.getContext("2d", { alpha: false });
 
     pdfCanvas.width =
-      Math.floor(
-        renderViewport.width
-      );
+      rightPage
+        ? pageRenderWidth * 2 + gapRender
+        : pageRenderWidth;
 
-    pdfCanvas.height =
-      Math.floor(
-        renderViewport.height
-      );
+    pdfCanvas.height = pageRenderHeight;
 
     pdfCanvas.style.width =
-      `${Math.floor(
-        displayViewport.width
-      )}px`;
+      `${
+        rightPage
+          ? pageDisplayWidth * 2 + gapDisplay
+          : pageDisplayWidth
+      }px`;
 
     pdfCanvas.style.height =
-      `${Math.floor(
-        displayViewport.height
-      )}px`;
+      `${pageDisplayHeight}px`;
 
-    pdfCanvas.style.transform =
-      "none";
+    pdfCanvas.style.transform = "none";
 
-    await page.render({
+    context.fillStyle = "#ffffff";
+    context.fillRect(
+      0,
+      0,
+      pdfCanvas.width,
+      pdfCanvas.height
+    );
+
+    await leftPage.render({
       canvasContext: context,
-      viewport: renderViewport
+      viewport: leftPage.getViewport({
+        scale: displayScale * pixelRatio
+      })
     }).promise;
+
+    if (rightPage) {
+      await rightPage.render({
+        canvasContext: context,
+        viewport: rightPage.getViewport({
+          scale: displayScale * pixelRatio
+        }),
+        transform: [
+          1,
+          0,
+          0,
+          1,
+          pageRenderWidth + gapRender,
+          0
+        ]
+      }).promise;
+    }
 
     updatePdfZoomLayout();
     updatePageIndicator();
@@ -1464,10 +1525,14 @@ function updatePageControls() {
   );
 
   previousPageButton.disabled =
-    currentPage <= 1;
+    twoPageMode
+      ? getSpreadStart(currentPage) <= 1
+      : currentPage <= 1;
 
   nextPageButton.disabled =
-    currentPage >= pageCount;
+    twoPageMode
+      ? getSpreadStart(currentPage) + 2 > pageCount
+      : currentPage >= pageCount;
 }
 
 function updatePageIndicator() {
@@ -1478,8 +1543,21 @@ function updatePageIndicator() {
     ) ??
     1;
 
-  pageIndicator.textContent =
-    `Page ${currentPage} / ${pageCount}`;
+  if (twoPageMode) {
+    const start =
+      getSpreadStart(currentPage);
+
+    const end =
+      Math.min(start + 1, pageCount);
+
+    pageIndicator.textContent =
+      end > start
+        ? `Pages ${start}–${end} / ${pageCount}`
+        : `Page ${start} / ${pageCount}`;
+  } else {
+    pageIndicator.textContent =
+      `Page ${currentPage} / ${pageCount}`;
+  }
 
   updatePageControls();
 }
@@ -1489,11 +1567,28 @@ function updatePageIndicator() {
  */
 
 async function nextPage() {
-  if (
-    !currentPdf ||
-    currentPage >=
-      currentPdf.numPages
-  ) {
+  if (!currentPdf) {
+    return;
+  }
+
+  if (twoPageMode) {
+    const nextStart =
+      getSpreadStart(currentPage) + 2;
+
+    if (nextStart > currentPdf.numPages) {
+      return;
+    }
+
+    if (trainingMode) {
+      await recordPageTurn(nextStart);
+    }
+
+    await renderPage(nextStart);
+
+    return;
+  }
+
+  if (currentPage >= currentPdf.numPages) {
     return;
   }
 
@@ -1512,10 +1607,24 @@ async function nextPage() {
 }
 
 async function previousPage() {
-  if (
-    !currentPdf ||
-    currentPage <= 1
-  ) {
+  if (!currentPdf) {
+    return;
+  }
+
+  if (twoPageMode) {
+    const prevStart =
+      getSpreadStart(currentPage) - 2;
+
+    if (prevStart < 1) {
+      return;
+    }
+
+    await renderPage(prevStart);
+
+    return;
+  }
+
+  if (currentPage <= 1) {
     return;
   }
 
@@ -1939,12 +2048,15 @@ function processAutomaticPageTurns() {
   const currentAudioTime =
     getAudioTime();
 
+  const visibleEnd =
+    getVisibleEnd();
+
   const nextTurn =
     currentSong.pageTurns.find(
       turn => {
         return (
           turn.toPage >
-          currentPage
+          visibleEnd
         );
       }
     );
@@ -2947,6 +3059,12 @@ window.addEventListener(
       return;
     }
 
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closePlayer();
+      return;
+    }
+
     const tagName =
       event.target?.tagName;
 
@@ -3004,8 +3122,8 @@ const themeColorMeta =
   document.querySelector("#themeColorMeta");
 
 const THEME_COLORS = {
-  dark: "#0d0e11",
-  light: "#eef0f3"
+  dark: "#0d0e10",
+  light: "#f4f5f7"
 };
 
 function getPreferredTheme() {

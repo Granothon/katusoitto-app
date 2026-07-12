@@ -9,67 +9,74 @@
  * stored in localStorage and set on documentElement's data-theme attribute.
  */
 
+/*
+ * Palette: sleek minimalist — neutral graphite (dark) / clean paper
+ * (light), monochrome-forward with a single blue accent used only for
+ * the primary action and live states. Variable names are kept so
+ * components recolour automatically.
+ */
+
 :root,
 :root[data-theme="dark"] {
   color-scheme: dark;
 
-  --bg: #0d0e11;
-  --bg-elev: #141519;
-  --surface: #17181d;
-  --surface-2: #212329;
+  --bg: #0d0e10;
+  --bg-elev: #131417;
+  --surface: #16171a;
+  --surface-2: #1e2024;
 
-  --border: #2e3038;
-  --border-strong: #3d4048;
+  --border: #26282d;
+  --border-strong: #35383f;
 
-  --text: #f4f5f7;
-  --muted: #9a9ca6;
+  --text: #f2f3f5;
+  --muted: #9297a1;
 
-  --accent: #ffb000;
-  --accent-strong: #ffc23d;
-  --accent-ink: #1a1500;
-  --accent-wash: #2a2413;
+  --accent: #5b8dff;
+  --accent-strong: #8fb2ff;
+  --accent-ink: #ffffff;
+  --accent-wash: #141c2b;
 
-  --danger: #ff4d6d;
+  --danger: #ef4a5a;
   --danger-ink: #ffffff;
-  --ok: #35d0aa;
+  --ok: #3ecf8e;
 
-  --stage: #2f3037;
-  --warning-bg: rgb(16 17 20 / 92%);
+  --stage: #17181b;
+  --warning-bg: rgb(15 16 18 / 92%);
 
-  --shadow-1: 0 1px 2px rgb(0 0 0 / 40%), 0 3px 10px rgb(0 0 0 / 28%);
-  --shadow-2: 0 14px 44px rgb(0 0 0 / 50%);
-  --overlay: rgb(0 0 0 / 62%);
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 40%), 0 4px 12px rgb(0 0 0 / 28%);
+  --shadow-2: 0 16px 44px rgb(0 0 0 / 52%);
+  --overlay: rgb(0 0 0 / 60%);
 }
 
 :root[data-theme="light"] {
   color-scheme: light;
 
-  --bg: #eef0f3;
+  --bg: #f4f5f7;
   --bg-elev: #ffffff;
   --surface: #ffffff;
-  --surface-2: #f1f3f6;
+  --surface-2: #eef0f3;
 
-  --border: #d5d9e0;
-  --border-strong: #b4bac6;
+  --border: #e4e6ea;
+  --border-strong: #cbcfd6;
 
   --text: #14161a;
-  --muted: #565d6b;
+  --muted: #616774;
 
-  --accent: #ffb000;
-  --accent-strong: #c97b00;
-  --accent-ink: #1a1500;
-  --accent-wash: #fff4dc;
+  --accent: #2f6bed;
+  --accent-strong: #1f52c9;
+  --accent-ink: #ffffff;
+  --accent-wash: #eaf1fe;
 
-  --danger: #d81b46;
+  --danger: #d63a48;
   --danger-ink: #ffffff;
-  --ok: #0a9d7d;
+  --ok: #17a06a;
 
-  --stage: #d7dade;
+  --stage: #e6e8ec;
   --warning-bg: rgb(255 255 255 / 96%);
 
-  --shadow-1: 0 1px 2px rgb(20 22 26 / 8%), 0 3px 10px rgb(20 22 26 / 8%);
-  --shadow-2: 0 16px 44px rgb(20 22 26 / 20%);
-  --overlay: rgb(20 22 26 / 42%);
+  --shadow-1: 0 1px 2px rgb(16 18 22 / 7%), 0 4px 12px rgb(16 18 22 / 7%);
+  --shadow-2: 0 16px 44px rgb(16 18 22 / 18%);
+  --overlay: rgb(16 18 22 / 40%);
 }
 
 /*
@@ -116,7 +123,7 @@ button {
 h1,
 h2,
 h3 {
-  letter-spacing: -0.01em;
+  letter-spacing: -0.015em;
 }
 
 :focus-visible {
@@ -166,7 +173,9 @@ h3 {
 
 .main-header h1 {
   margin: 0;
-  font-size: clamp(1.7rem, 5vw, 2.3rem);
+  font-size: clamp(1.65rem, 5vw, 2.2rem);
+  font-weight: 700;
+  letter-spacing: -0.025em;
   line-height: 1.05;
 }
 
@@ -571,6 +580,7 @@ h3 {
   font-size: 0.82rem;
   font-variant-numeric: tabular-nums;
 }
+
 
 /*
  * PDF view
