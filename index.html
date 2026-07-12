@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="fi">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
 
@@ -9,9 +9,8 @@
   >
 
   <!--
-    Content Security Policy: sovellus on täysin paikallinen,
-    joten kaikki ladataan omasta originista. Ei ulkoisia
-    skriptejä, ei kehyksiä, ei objekteja.
+    Content Security Policy: the app is fully local, so everything
+    loads from its own origin. No external scripts, frames or objects.
   -->
   <meta
     http-equiv="Content-Security-Policy"
@@ -61,37 +60,37 @@
 <body>
   <main id="app">
 
-    <!-- Kirjasto -->
+    <!-- Library -->
     <section id="libraryView" class="view">
       <header class="main-header">
         <div>
           <h1>Katusoitto</h1>
-          <p>Kappaleet, nuotit ja taustanauhat</p>
+          <p>Songs, sheet music and backing tracks</p>
         </div>
 
         <button
           class="icon-button theme-toggle"
           type="button"
           data-theme-toggle
-          aria-label="Vaihda teema"
-          title="Vaihda teema (tumma / kirkas)"
+          aria-label="Switch theme"
+          title="Switch theme (dark / light)"
         >
           <span class="to-light" aria-hidden="true">☀️</span>
           <span class="to-dark" aria-hidden="true">🌙</span>
         </button>
       </header>
 
-      <!-- Tiedostojen lisäys -->
+      <!-- Add files -->
       <section
         id="dropZone"
         class="drop-zone"
       >
         <strong id="dropZoneTitle">
-          Lisää uusi kappale
+          Add a new song
         </strong>
 
         <p id="dropZoneStatus">
-          Pudota PDF ja MP3 tähän
+          Drop a PDF and MP3 here
         </p>
 
         <div
@@ -114,7 +113,7 @@
           class="secondary-button"
           type="button"
         >
-          Valitse tiedostot
+          Choose files
         </button>
 
         <input
@@ -126,11 +125,11 @@
         >
       </section>
 
-      <!-- Kirjaston kappaleet -->
+      <!-- Library songs -->
       <section>
         <div class="section-heading">
-          <h2>Kirjasto</h2>
-          <span id="songCount">0 kappaletta</span>
+          <h2>Library</h2>
+          <span id="songCount">0 songs</span>
         </div>
 
         <div
@@ -142,16 +141,16 @@
           id="emptyState"
           class="empty-state"
         >
-          <h2>Kirjasto on tyhjä</h2>
+          <h2>Your library is empty</h2>
 
           <p>
-            Lisää ensimmäinen kappale.
+            Add your first song.
           </p>
         </div>
       </section>
     </section>
 
-    <!-- Nuotti- ja soittotila -->
+    <!-- Sheet music & player -->
     <section
       id="playerView"
       class="view hidden"
@@ -161,22 +160,22 @@
           id="backButton"
           class="icon-button"
           type="button"
-          aria-label="Palaa kirjastoon"
-          title="Palaa kirjastoon"
+          aria-label="Back to library"
+          title="Back to library"
         >
-          ← Kirjasto
+          ← Library
         </button>
 
         <div class="player-title">
           <strong id="currentSongTitle">
-            Kappale
+            Song
           </strong>
 
           <span
             id="pageIndicator"
             class="hidden"
           >
-            Sivu 1 / 1
+            Page 1 / 1
           </span>
         </div>
 
@@ -185,8 +184,8 @@
             class="icon-button theme-toggle"
             type="button"
             data-theme-toggle
-            aria-label="Vaihda teema"
-            title="Vaihda teema (tumma / kirkas)"
+            aria-label="Switch theme"
+            title="Switch theme (dark / light)"
           >
             <span class="to-light" aria-hidden="true">☀️</span>
             <span class="to-dark" aria-hidden="true">🌙</span>
@@ -196,15 +195,15 @@
             id="settingsButton"
             class="icon-button hidden"
             type="button"
-            aria-label="Sivunvaihtojen asetukset"
-            title="Sivunvaihtojen asetukset"
+            aria-label="Page turn settings"
+            title="Page turn settings"
           >
-            Sivunvaihdot
+            Page turns
           </button>
         </div>
       </header>
 
-      <!-- PDF-näkymä -->
+      <!-- PDF view -->
       <section
         id="pdfArea"
         class="pdf-area fit-page"
@@ -215,7 +214,7 @@
         >
           <div>
             <strong id="turnWarningText">
-              Sivu vaihtuu
+              Page turning
             </strong>
 
             <span id="turnWarningCountdown">
@@ -237,55 +236,93 @@
           id="previousPageButton"
           class="page-touch-area page-touch-left hidden"
           type="button"
-          aria-label="Edellinen sivu"
-          title="Edellinen sivu"
+          aria-label="Previous page"
+          title="Previous page (←)"
         >
-          ‹
+          <span class="page-arrow" aria-hidden="true">‹</span>
         </button>
 
         <button
           id="nextPageButton"
           class="page-touch-area page-touch-right hidden"
           type="button"
-          aria-label="Seuraava sivu"
-          title="Seuraava sivu"
+          aria-label="Next page"
+          title="Next page (→)"
         >
-          ›
+          <span class="page-arrow" aria-hidden="true">›</span>
         </button>
       </section>
 
-      <!-- Taustanauhan toisto -->
+      <!-- Backing track playback -->
       <section class="transport">
         <div class="transport-main">
-          <button
-            id="restartButton"
-            class="transport-button media-symbol-button"
-            type="button"
-            aria-label="Palaa kappaleen alkuun"
-            title="Palaa kappaleen alkuun"
+          <div
+            class="tempo-control"
+            role="group"
+            aria-label="Tempo"
           >
-            ⏮
-          </button>
+            <button
+              class="tempo-step"
+              type="button"
+              data-tempo-delta="-0.05"
+              aria-label="Slow down"
+              title="Slow down"
+            >
+              −
+            </button>
 
-          <button
-            id="playPauseButton"
-            class="play-button media-symbol-button"
-            type="button"
-            aria-label="Toista"
-            title="Toista"
-          >
-            ▶
-          </button>
+            <button
+              id="tempoValue"
+              class="tempo-value"
+              type="button"
+              aria-label="Tempo, tap to reset"
+              title="Tap to reset (100%)"
+            >
+              100 %
+            </button>
 
-          <button
-            id="nextSongButton"
-            class="transport-button media-symbol-button"
-            type="button"
-            aria-label="Seuraava kappale"
-            title="Seuraava kappale"
-          >
-            ⏭
-          </button>
+            <button
+              class="tempo-step"
+              type="button"
+              data-tempo-delta="0.05"
+              aria-label="Speed up"
+              title="Speed up"
+            >
+              +
+            </button>
+          </div>
+
+          <div class="transport-buttons">
+            <button
+              id="restartButton"
+              class="transport-button media-symbol-button"
+              type="button"
+              aria-label="Restart song"
+              title="Restart song"
+            >
+              ⏮
+            </button>
+
+            <button
+              id="playPauseButton"
+              class="play-button media-symbol-button"
+              type="button"
+              aria-label="Play"
+              title="Play"
+            >
+              ▶
+            </button>
+
+            <button
+              id="nextSongButton"
+              class="transport-button media-symbol-button"
+              type="button"
+              aria-label="Next song"
+              title="Next song"
+            >
+              ⏭
+            </button>
+          </div>
         </div>
 
         <div class="time-row">
@@ -300,7 +337,7 @@
             max="0"
             value="0"
             step="0.1"
-            aria-label="Toistokohta"
+            aria-label="Playback position"
           >
 
           <span id="duration">
@@ -315,7 +352,7 @@
       </section>
     </section>
 
-    <!-- Sivunvaihtojen asetukset -->
+    <!-- Page turn settings -->
     <dialog id="settingsDialog">
       <form
         method="dialog"
@@ -323,7 +360,7 @@
       >
         <header class="dialog-header">
           <div>
-            <h2>Sivunvaihdot</h2>
+            <h2>Page turns</h2>
             <p id="settingsSongTitle"></p>
           </div>
 
@@ -333,18 +370,18 @@
             type="submit"
             value="cancel"
           >
-            Sulje
+            Close
           </button>
         </header>
 
         <label class="setting-row">
           <span>
             <strong>
-              Automaattiset sivunvaihdot
+              Automatic page turns
             </strong>
 
             <small>
-              Vaihda sivua taustanauhan ajan perusteella
+              Turn pages based on the backing track time
             </small>
           </span>
 
@@ -357,41 +394,41 @@
 
         <label class="setting-row">
           <span>
-            <strong>Varoitusaika</strong>
+            <strong>Warning time</strong>
 
             <small>
-              Näytetään ennen sivunvaihtoa
+              Shown before a page turn
             </small>
           </span>
 
           <select id="warningSeconds">
             <option value="3">
-              3 sekuntia
+              3 seconds
             </option>
 
             <option
               value="5"
               selected
             >
-              5 sekuntia
+              5 seconds
             </option>
 
             <option value="8">
-              8 sekuntia
+              8 seconds
             </option>
 
             <option value="10">
-              10 sekuntia
+              10 seconds
             </option>
           </select>
         </label>
 
         <section class="training-section">
-          <h3>Opeta sivunvaihdot</h3>
+          <h3>Teach page turns</h3>
 
           <p>
-            Käynnistä opetustila ja vaihda sivua
-            haluamissasi kohdissa.
+            Start teaching mode and turn the page
+            at the points you want.
           </p>
 
           <button
@@ -399,7 +436,7 @@
             type="button"
             class="primary-button full-width"
           >
-            Aloita opetus
+            Start teaching
           </button>
 
           <button
@@ -407,20 +444,20 @@
             type="button"
             class="danger-button full-width hidden"
           >
-            Lopeta ja tallenna
+            Stop and save
           </button>
         </section>
 
         <section>
           <div class="section-heading">
-            <h3>Tallennetut vaihdot</h3>
+            <h3>Saved page turns</h3>
 
             <button
               id="clearPageTurnsButton"
               type="button"
               class="text-button"
             >
-              Poista kaikki
+              Clear all
             </button>
           </div>
 

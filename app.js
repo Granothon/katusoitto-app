@@ -10,6 +10,9 @@ const SONG_STORE = "songs";
 const MIN_PDF_ZOOM = 1;
 const MAX_PDF_ZOOM = 4;
 
+const MIN_TEMPO = 0.5;
+const MAX_TEMPO = 1.5;
+
 let db;
 let songs = [];
 
@@ -18,6 +21,8 @@ let currentPdf = null;
 let currentPage = 1;
 
 let audioObjectUrl = null;
+
+let currentTempo = 1;
 
 let trainingMode = false;
 let rendering = false;
@@ -138,6 +143,9 @@ const currentTimeElement =
 
 const durationElement =
   document.querySelector("#duration");
+
+const tempoValue =
+  document.querySelector("#tempoValue");
 
 /*
  * Sivunvaihtojen asetukset
@@ -338,7 +346,7 @@ async function readPdfPageCount(file) {
     return pdfDocument.numPages;
   } catch (error) {
     console.error(
-      "PDF:n sivumäärän lukeminen epäonnistui:",
+      "Could not read PDF page count:",
       error
     );
 
@@ -349,7 +357,7 @@ async function readPdfPageCount(file) {
         await pdfDocument.destroy();
       } catch (error) {
         console.warn(
-          "PDF-dokumentin vapauttaminen epäonnistui:",
+          "Could not release PDF document:",
           error
         );
       }
@@ -393,7 +401,7 @@ async function ensurePdfPageCounts() {
       songsUpdated = true;
     } catch (error) {
       console.error(
-        `Kappaleen "${song.title}" sivumäärän lukeminen epäonnistui:`,
+        `Could not read page count for song "${song.title}":`,
         error
       );
     }
@@ -441,7 +449,7 @@ async function addFiles(fileList) {
 
   if (!recognizedFileFound) {
     showToast(
-      "Tiedoston pitää olla PDF tai MP3."
+      "The file must be a PDF or MP3."
     );
 
     return;
@@ -455,11 +463,11 @@ async function addFiles(fileList) {
   ) {
     if (pendingImport.pdf) {
       showToast(
-        "PDF on valmis. Lisää vielä MP3."
+        "PDF ready. Add an MP3 too."
       );
     } else {
       showToast(
-        "MP3 on valmis. Lisää vielä PDF."
+        "MP3 ready. Add a PDF too."
       );
     }
 
@@ -481,7 +489,7 @@ async function createSongFromPendingFiles() {
   }
 
   dropZoneTitle.textContent =
-    "Tallennetaan kappaletta";
+    "Saving song";
 
   dropZoneStatus.textContent =
     "";
@@ -523,7 +531,8 @@ async function createSongFromPendingFiles() {
 
       settings: {
         autoTurnEnabled: true,
-        warningSeconds: 5
+        warningSeconds: 5,
+        playbackRate: 1
       },
 
       pageTurns: []
@@ -545,13 +554,13 @@ async function createSongFromPendingFiles() {
     renderLibrary();
 
     showToast(
-      `Kappale "${title}" lisättiin kirjastoon.`
+      `Song "${title}" added to the library.`
     );
   } catch (error) {
     console.error(error);
 
     showToast(
-      "Kappaleen tallentaminen epäonnistui."
+      "Could not save the song."
     );
 
     updatePendingImportDisplay();
@@ -594,37 +603,37 @@ function updatePendingImportDisplay() {
   pendingPdf.textContent =
     hasPdf
       ? `PDF: ${pendingImport.pdf.name}`
-      : "PDF puuttuu";
+      : "PDF missing";
 
   pendingMp3.textContent =
     hasMp3
       ? `MP3: ${pendingImport.mp3.name}`
-      : "MP3 puuttuu";
+      : "MP3 missing";
 
   if (hasPdf && !hasMp3) {
     dropZoneTitle.textContent =
-      "Lisää MP3-taustanauha";
+      "Add an MP3 backing track";
 
     dropZoneStatus.textContent =
-      "PDF on valittu";
+      "PDF selected";
   } else if (!hasPdf && hasMp3) {
     dropZoneTitle.textContent =
-      "Lisää PDF-nuotti";
+      "Add a PDF score";
 
     dropZoneStatus.textContent =
-      "MP3 on valittu";
+      "MP3 selected";
   } else if (hasPdf && hasMp3) {
     dropZoneTitle.textContent =
-      "Tallennetaan kappaletta";
+      "Saving song";
 
     dropZoneStatus.textContent =
       "";
   } else {
     dropZoneTitle.textContent =
-      "Lisää uusi kappale";
+      "Add a new song";
 
     dropZoneStatus.textContent =
-      "Pudota PDF ja MP3 tähän";
+      "Drop a PDF and MP3 here";
   }
 }
 
@@ -669,7 +678,7 @@ function findCommonTitle(
   return (
     pdfTitle ||
     mp3Title ||
-    "Nimetön kappale"
+    "Untitled song"
   );
 }
 
@@ -719,8 +728,8 @@ function renderLibrary() {
   songCount.textContent =
     `${songs.length} ${
       songs.length === 1
-        ? "kappale"
-        : "kappaletta"
+        ? "song"
+        : "songs"
     }`;
 
   emptyState.classList.toggle(
@@ -749,19 +758,19 @@ function renderLibrary() {
       pageCount > 1
         ? `
           <span>
-            ${pageCount} sivua
+            ${pageCount} pages
           </span>
 
           <span>
-            Sivunvaihtoja
+            Page turns
             ${song.pageTurns.length}
           </span>
 
           <span>
             ${
               song.settings.autoTurnEnabled
-                ? "Automaattivaihto käytössä"
-                : "Automaattivaihto pois käytöstä"
+                ? "Auto-turn on"
+                : "Auto-turn off"
             }
           </span>
         `
@@ -774,7 +783,7 @@ function renderLibrary() {
 
       <span class="song-card-details">
         <span>
-          Taustanauha
+          Backing track
           ${formatTime(
             song.audio.duration
           )}
@@ -786,8 +795,8 @@ function renderLibrary() {
       <span
         class="delete-song-button"
         role="button"
-        aria-label="Poista kappale"
-        title="Poista kappale"
+        aria-label="Delete song"
+        title="Delete song"
         data-delete-id="${song.id}"
       >
         ✕
@@ -823,7 +832,7 @@ function renderLibrary() {
 async function deleteSong(song) {
   const accepted =
     confirm(
-      `Poistetaanko kappale "${song.title}" kirjastosta?`
+      `Delete song "${song.title}" from the library?`
     );
 
   if (!accepted) {
@@ -845,7 +854,7 @@ async function deleteSong(song) {
   renderLibrary();
 
   showToast(
-    "Kappale poistettiin kirjastosta."
+    "Song deleted from the library."
   );
 }
 
@@ -862,22 +871,22 @@ function updatePlayPauseButton(
 
     playPauseButton.setAttribute(
       "aria-label",
-      "Keskeytä toisto"
+      "Pause"
     );
 
     playPauseButton.title =
-      "Keskeytä toisto";
+      "Pause";
   } else {
     playPauseButton.textContent =
       "▶";
 
     playPauseButton.setAttribute(
       "aria-label",
-      "Toista"
+      "Play"
     );
 
     playPauseButton.title =
-      "Toista";
+      "Play";
   }
 }
 
@@ -892,7 +901,7 @@ function resetCurrentPlayback() {
     audioPlayer.currentTime = 0;
   } catch (error) {
     console.warn(
-      "Toistokohtaa ei voitu palauttaa:",
+      "Could not reset playback position:",
       error
     );
   }
@@ -1002,7 +1011,7 @@ async function openSong(id) {
     currentSong.title;
 
   pageIndicator.textContent =
-    "Ladataan nuottia...";
+    "Loading sheet music...";
 
   settingsButton.classList.add(
     "hidden"
@@ -1032,6 +1041,15 @@ async function openSong(id) {
     currentSong.audio.file
   );
 
+  currentTempo =
+    clampTempo(
+      Number(
+        currentSong.settings?.playbackRate
+      ) || 1
+    );
+
+  applyTempo();
+
   try {
     await loadPdf(
       currentSong.pdf.file
@@ -1057,7 +1075,7 @@ async function openSong(id) {
     console.error(error);
 
     showToast(
-      "Nuotin avaaminen epäonnistui."
+      "Could not open the sheet music."
     );
   }
 }
@@ -1205,12 +1223,12 @@ async function renderPage(pageNumber) {
     updatePageIndicator();
   } catch (error) {
     console.error(
-      "PDF-sivun näyttäminen epäonnistui:",
+      "Could not render PDF page:",
       error
     );
 
     showToast(
-      "Nuottisivun näyttäminen epäonnistui."
+      "Could not display the sheet page."
     );
   } finally {
     rendering = false;
@@ -1341,7 +1359,7 @@ async function setPdfZoom(
   if (showMessage) {
     if (pdfZoom <= 1.01) {
       showToast(
-        "Sovita sivu"
+        "Fit page"
       );
     } else {
       showToast(
@@ -1368,7 +1386,7 @@ async function resetPdfZoom(
 
   if (showMessage) {
     showToast(
-      "Sovita sivu"
+      "Fit page"
     );
   }
 }
@@ -1425,6 +1443,12 @@ function updatePageControls() {
     "hidden",
     !hasMultiplePages
   );
+
+  previousPageButton.disabled =
+    currentPage <= 1;
+
+  nextPageButton.disabled =
+    currentPage >= pageCount;
 }
 
 function updatePageIndicator() {
@@ -1436,7 +1460,7 @@ function updatePageIndicator() {
     1;
 
   pageIndicator.textContent =
-    `Sivu ${currentPage} / ${pageCount}`;
+    `Page ${currentPage} / ${pageCount}`;
 
   updatePageControls();
 }
@@ -1524,7 +1548,7 @@ async function recordPageTurn(
   renderPageTurnList();
 
   showToast(
-    `Sivun ${targetPage} vaihto tallennettiin kohtaan ${formatTime(time)}.`
+    `Page ${targetPage} turn saved at ${formatTime(time)}.`
   );
 }
 
@@ -1562,6 +1586,68 @@ function loadAudio(file) {
     );
 }
 
+/*
+ * Tempo
+ */
+
+function clampTempo(value) {
+  return Math.min(
+    MAX_TEMPO,
+    Math.max(
+      MIN_TEMPO,
+      value
+    )
+  );
+}
+
+function updateTempoDisplay() {
+  const percent =
+    Math.round(currentTempo * 100);
+
+  tempoValue.textContent =
+    `${percent} %`;
+
+  tempoValue.classList.toggle(
+    "modified",
+    Math.abs(currentTempo - 1) > 0.001
+  );
+}
+
+function applyTempo() {
+  /*
+   * Säilytä sävelkorkeus tempoa muutettaessa
+   * (ei "chipmunk"-efektiä).
+   */
+  audioPlayer.preservesPitch = true;
+  audioPlayer.mozPreservesPitch = true;
+  audioPlayer.webkitPreservesPitch = true;
+
+  audioPlayer.playbackRate = currentTempo;
+
+  updateTempoDisplay();
+}
+
+async function setTempo(
+  newTempo,
+  save = true
+) {
+  currentTempo =
+    clampTempo(
+      Math.round(newTempo * 100) / 100
+    );
+
+  applyTempo();
+
+  if (save && currentSong) {
+    currentSong.settings.playbackRate =
+      currentTempo;
+
+    await saveSong(currentSong);
+
+    updateSongInMemory();
+  }
+}
+
 function togglePlayback() {
   if (!currentSong) {
     return;
@@ -1574,7 +1660,7 @@ function togglePlayback() {
         console.error(error);
 
         showToast(
-          "Toiston käynnistäminen epäonnistui."
+          "Could not start playback."
         );
       });
   } else {
@@ -1663,17 +1749,16 @@ function processAutomaticPageTurns() {
     return;
   }
 
-  const secondsUntilTurn =
+  const mediaSecondsUntilTurn =
     nextTurn.time -
     currentAudioTime;
 
-  const warningTime =
-    Number(
-      currentSong.settings
-        .warningSeconds
-    ) || 5;
-
-  if (secondsUntilTurn <= 0) {
+  /*
+   * Vaihtohetki on äänen omassa aikajanassa, joten se
+   * osuu oikeaan musiikilliseen kohtaan temposta
+   * riippumatta – ei korjausta tähän.
+   */
+  if (mediaSecondsUntilTurn <= 0) {
     hideTurnWarning();
 
     renderPage(
@@ -1682,6 +1767,24 @@ function processAutomaticPageTurns() {
 
     return;
   }
+
+  /*
+   * Varoituksen ennakkoaika lasketaan tosielämän
+   * sekunteina: nopeampi tempo → vähemmän reaaliaikaa
+   * vaihtoon, joten varoitus tulee oikeassa hetkessä.
+   */
+  const playbackRate =
+    audioPlayer.playbackRate || 1;
+
+  const secondsUntilTurn =
+    mediaSecondsUntilTurn /
+    playbackRate;
+
+  const warningTime =
+    Number(
+      currentSong.settings
+        .warningSeconds
+    ) || 5;
 
   if (
     secondsUntilTurn <=
@@ -1723,7 +1826,7 @@ function showTurnWarning(
   );
 
   turnWarningText.textContent =
-    `Sivu ${turn.toPage} vaihtuu`;
+    `Page ${turn.toPage} turning`;
 
   turnWarningCountdown.textContent =
     `${Math.max(
@@ -1841,7 +1944,7 @@ async function startTraining() {
   const accepted =
     currentSong.pageTurns.length === 0 ||
     confirm(
-      "Korvataanko aiemmin tallennetut sivunvaihdot?"
+      "Replace previously saved page turns?"
     );
 
   if (!accepted) {
@@ -1871,7 +1974,7 @@ async function startTraining() {
   await restartSong();
 
   showToast(
-    "Opetustila käynnissä."
+    "Teaching mode active."
   );
 }
 
@@ -1894,7 +1997,7 @@ async function stopTraining() {
   renderPageTurnList();
 
   showToast(
-    "Sivunvaihdot tallennettiin."
+    "Page turns saved."
   );
 }
 
@@ -1907,7 +2010,7 @@ function renderPageTurnList() {
   ) {
     pageTurnList.innerHTML = `
       <p style="color: var(--muted)">
-        Ei tallennettuja sivunvaihtoja.
+        No saved page turns.
       </p>
     `;
 
@@ -1928,7 +2031,7 @@ function renderPageTurnList() {
 
     item.innerHTML = `
       <strong>
-        Sivu
+        Page
         ${turn.fromPage}
         →
         ${turn.toPage}
@@ -1939,14 +2042,14 @@ function renderPageTurnList() {
         min="0"
         step="0.1"
         value="${turn.time}"
-        aria-label="Sivunvaihdon aika sekunteina"
+        aria-label="Page turn time in seconds"
       >
 
       <button
         type="button"
         class="text-button"
       >
-        Poista
+        Delete
       </button>
     `;
 
@@ -2027,7 +2130,7 @@ async function clearPageTurns() {
 
   const accepted =
     confirm(
-      "Poistetaanko kaikki tallennetut sivunvaihdot?"
+      "Delete all saved page turns?"
     );
 
   if (!accepted) {
@@ -2075,7 +2178,7 @@ function closePlayer() {
     "0px";
 
   pageIndicator.textContent =
-    "Sivu 1 / 1";
+    "Page 1 / 1";
 
   settingsButton.classList.add(
     "hidden"
@@ -2268,6 +2371,31 @@ nextPageButton.addEventListener(
 );
 
 /*
+ * Tempo-painikkeet
+ */
+
+for (const button of document.querySelectorAll(
+  "[data-tempo-delta]"
+)) {
+  button.addEventListener(
+    "click",
+    () => {
+      setTempo(
+        currentTempo +
+        Number(button.dataset.tempoDelta)
+      );
+    }
+  );
+}
+
+tempoValue.addEventListener(
+  "click",
+  () => {
+    setTempo(1);
+  }
+);
+
+/*
  * Sivunvaihtojen asetukset
  */
 
@@ -2329,6 +2457,8 @@ audioPlayer.addEventListener(
       formatTime(
         audioPlayer.duration
       );
+
+    applyTempo();
   }
 );
 
@@ -2646,6 +2776,47 @@ window.addEventListener(
   }
 );
 
+/*
+ * Näppäimistön sivunvaihto
+ */
+
+window.addEventListener(
+  "keydown",
+  event => {
+    if (
+      playerView.classList.contains("hidden") ||
+      settingsDialog.open
+    ) {
+      return;
+    }
+
+    const tagName =
+      event.target?.tagName;
+
+    if (
+      tagName === "INPUT" ||
+      tagName === "SELECT" ||
+      tagName === "TEXTAREA"
+    ) {
+      return;
+    }
+
+    if (
+      event.key === "ArrowRight" ||
+      event.key === "PageDown"
+    ) {
+      event.preventDefault();
+      nextPage();
+    } else if (
+      event.key === "ArrowLeft" ||
+      event.key === "PageUp"
+    ) {
+      event.preventDefault();
+      previousPage();
+    }
+  }
+);
+
 window.addEventListener(
   "beforeunload",
   () => {
@@ -2798,7 +2969,7 @@ async function initialize() {
         .register("./sw.js")
         .catch(error => {
           console.error(
-            "Offline-toiminnon käynnistäminen epäonnistui:",
+            "Could not start offline support:",
             error
           );
         });
@@ -2807,7 +2978,7 @@ async function initialize() {
     console.error(error);
 
     showToast(
-      "Paikallisen tietokannan avaaminen epäonnistui."
+      "Could not open the local database."
     );
   }
 }

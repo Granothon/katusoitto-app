@@ -1,4 +1,8 @@
 {
+  "name": "katusoitto-app",
+  "version": "1.0.0",
+  "description": "Offline PWA for buskers: PDF sheet music + MP3 backing tracks with automatic page turns",
+  "license": "MIT",
   "dependencies": {
     "pdfjs-dist": "^6.1.200"
   }

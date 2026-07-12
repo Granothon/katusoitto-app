@@ -1,14 +1,14 @@
 {
   "name": "Katusoitto",
   "short_name": "Katusoitto",
-  "description": "Offline-nuotit ja taustanauhat katusoittoon",
+  "description": "Offline sheet music and backing tracks for busking",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "landscape",
   "background_color": "#0d0e11",
   "theme_color": "#0d0e11",
-  "lang": "fi",
+  "lang": "en",
   "icons": [
     {
       "src": "./icon.svg",

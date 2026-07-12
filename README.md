@@ -68,3 +68,10 @@ Nosta tämän jälkeen `sw.js`:n `CACHE_NAME`-versiota, jotta uusi versio otetaa
 Sovellus avaa mielivaltaisia PDF-tiedostoja, joten pdf.js on kovennettu
 (`isEvalSupported`, `enableScripting`, `enableXfa` pois) ja `index.html`:ssä on tiukka
 Content Security Policy. Kaikki data pysyy laitteella; mitään ei lähetetä ulos.
+
+## Lisenssi
+
+Tämä projekti on lisensoitu **MIT**-lisenssillä – ks. [LICENSE](LICENSE).
+
+Sovellus sisältää Mozillan **pdf.js**-kirjaston (`vendor/`), joka on lisensoitu
+Apache License 2.0:lla – ks. [vendor/LICENSE](vendor/LICENSE).

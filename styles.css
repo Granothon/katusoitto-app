@@ -631,39 +631,75 @@ h3 {
 
 .page-touch-area {
   position: fixed;
-  z-index: 5;
+  z-index: 6;
 
-  top: 25%;
-  bottom: 25%;
+  top: 76px;
+  bottom: 150px;
 
-  width: 74px;
+  width: clamp(58px, 11vw, 108px);
 
   display: flex;
   align-items: center;
-  justify-content: center;
 
   border: 0;
   background: transparent;
-  color: transparent;
 
-  font-size: 3rem;
+  opacity: 0.62;
+  transition: opacity 130ms ease;
 }
 
-.page-touch-area:active {
-  color: rgb(255 255 255 / 78%);
-  background: rgb(0 0 0 / 16%);
+.page-touch-area:hover {
+  opacity: 1;
+}
+
+.page-touch-area:disabled {
+  opacity: 0.16;
+  cursor: default;
 }
 
 .page-touch-left {
   left: 0;
   justify-content: flex-start;
-  padding-left: 12px;
+  padding-left: 10px;
 }
 
 .page-touch-right {
   right: 0;
   justify-content: flex-end;
-  padding-right: 12px;
+  padding-right: 10px;
+}
+
+.page-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+
+  background: color-mix(in srgb, var(--bg-elev) 82%, transparent);
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+  box-shadow: var(--shadow-1);
+
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+
+  font-size: 1.9rem;
+  line-height: 1;
+
+  transition:
+    transform 120ms ease,
+    background-color 120ms ease,
+    border-color 120ms ease;
+}
+
+.page-touch-area:active .page-arrow {
+  transform: scale(0.92);
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: var(--accent);
 }
 
 /*
@@ -762,8 +798,85 @@ h3 {
 }
 
 .transport-main {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 12px;
+}
+
+.transport-buttons {
+  grid-column: 2;
+
+  display: flex;
+  align-items: center;
   justify-content: center;
   gap: 18px;
+}
+
+/*
+ * Tempo
+ */
+
+.tempo-control {
+  grid-column: 1;
+  justify-self: start;
+
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+
+  padding: 4px;
+  border-radius: 999px;
+
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.tempo-step {
+  width: 36px;
+  height: 36px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text);
+
+  font-size: 1.3rem;
+  line-height: 1;
+}
+
+.tempo-step:hover {
+  background: var(--surface);
+}
+
+.tempo-step:active {
+  transform: scale(0.9);
+}
+
+.tempo-value {
+  min-width: 58px;
+
+  border: 0;
+  border-radius: 999px;
+  padding: 6px 8px;
+
+  background: transparent;
+  color: var(--text);
+
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.tempo-value:hover {
+  background: var(--surface);
+}
+
+.tempo-value.modified {
+  color: var(--accent-strong);
 }
 
 .media-symbol-button {
@@ -1014,8 +1127,26 @@ dialog::backdrop {
   }
 
   .pdf-area {
-    height: calc(100dvh - 201px);
+    height: calc(100dvh - 245px);
     padding: 6px;
+  }
+
+  /* Kapealla näytöllä tempo omalle rivilleen painikkeiden alle */
+  .transport-main {
+    grid-template-columns: auto;
+    justify-items: center;
+    gap: 10px;
+  }
+
+  .transport-buttons {
+    grid-column: 1;
+    order: 1;
+  }
+
+  .tempo-control {
+    grid-column: 1;
+    justify-self: center;
+    order: 2;
   }
 
   .transport-button.media-symbol-button {
