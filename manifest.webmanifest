@@ -1,0 +1,20 @@
+{
+  "name": "Katusoitto",
+  "short_name": "Katusoitto",
+  "description": "Offline-nuotit ja taustanauhat katusoittoon",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#0d0e11",
+  "theme_color": "#0d0e11",
+  "lang": "fi",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

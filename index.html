@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="fi">
+<head>
+  <meta charset="UTF-8">
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, viewport-fit=cover"
+  >
+
+  <!--
+    Content Security Policy: sovellus on täysin paikallinen,
+    joten kaikki ladataan omasta originista. Ei ulkoisia
+    skriptejä, ei kehyksiä, ei objekteja.
+  -->
+  <meta
+    http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self'; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'self'"
+  >
+
+  <meta
+    id="themeColorMeta"
+    name="theme-color"
+    content="#0d0e11"
+  >
+
+  <meta
+    name="apple-mobile-web-app-capable"
+    content="yes"
+  >
+
+  <meta
+    name="apple-mobile-web-app-status-bar-style"
+    content="black-translucent"
+  >
+
+  <title>Katusoitto</title>
+
+  <link
+    rel="icon"
+    href="./icon.svg"
+    type="image/svg+xml"
+  >
+
+  <link
+    rel="apple-touch-icon"
+    href="./icon.svg"
+  >
+
+  <link
+    rel="manifest"
+    href="./manifest.webmanifest"
+  >
+
+  <link
+    rel="stylesheet"
+    href="./styles.css"
+  >
+</head>
+
+<body>
+  <main id="app">
+
+    <!-- Kirjasto -->
+    <section id="libraryView" class="view">
+      <header class="main-header">
+        <div>
+          <h1>Katusoitto</h1>
+          <p>Kappaleet, nuotit ja taustanauhat</p>
+        </div>
+
+        <button
+          class="icon-button theme-toggle"
+          type="button"
+          data-theme-toggle
+          aria-label="Vaihda teema"
+          title="Vaihda teema (tumma / kirkas)"
+        >
+          <span class="to-light" aria-hidden="true">☀️</span>
+          <span class="to-dark" aria-hidden="true">🌙</span>
+        </button>
+      </header>
+
+      <!-- Tiedostojen lisäys -->
+      <section
+        id="dropZone"
+        class="drop-zone"
+      >
+        <strong id="dropZoneTitle">
+          Lisää uusi kappale
+        </strong>
+
+        <p id="dropZoneStatus">
+          Pudota PDF ja MP3 tähän
+        </p>
+
+        <div
+          id="pendingFiles"
+          class="pending-files hidden"
+        >
+          <div
+            id="pendingPdf"
+            class="pending-file"
+          ></div>
+
+          <div
+            id="pendingMp3"
+            class="pending-file"
+          ></div>
+        </div>
+
+        <button
+          id="chooseFilesButton"
+          class="secondary-button"
+          type="button"
+        >
+          Valitse tiedostot
+        </button>
+
+        <input
+          id="fileInput"
+          type="file"
+          accept=".pdf,.mp3,application/pdf,audio/mpeg"
+          multiple
+          hidden
+        >
+      </section>
+
+      <!-- Kirjaston kappaleet -->
+      <section>
+        <div class="section-heading">
+          <h2>Kirjasto</h2>
+          <span id="songCount">0 kappaletta</span>
+        </div>
+
+        <div
+          id="songGrid"
+          class="song-grid"
+        ></div>
+
+        <div
+          id="emptyState"
+          class="empty-state"
+        >
+          <h2>Kirjasto on tyhjä</h2>
+
+          <p>
+            Lisää ensimmäinen kappale.
+          </p>
+        </div>
+      </section>
+    </section>
+
+    <!-- Nuotti- ja soittotila -->
+    <section
+      id="playerView"
+      class="view hidden"
+    >
+      <header class="player-header">
+        <button
+          id="backButton"
+          class="icon-button"
+          type="button"
+          aria-label="Palaa kirjastoon"
+          title="Palaa kirjastoon"
+        >
+          ← Kirjasto
+        </button>
+
+        <div class="player-title">
+          <strong id="currentSongTitle">
+            Kappale
+          </strong>
+
+          <span
+            id="pageIndicator"
+            class="hidden"
+          >
+            Sivu 1 / 1
+          </span>
+        </div>
+
+        <div class="player-header-actions">
+          <button
+            class="icon-button theme-toggle"
+            type="button"
+            data-theme-toggle
+            aria-label="Vaihda teema"
+            title="Vaihda teema (tumma / kirkas)"
+          >
+            <span class="to-light" aria-hidden="true">☀️</span>
+            <span class="to-dark" aria-hidden="true">🌙</span>
+          </button>
+
+          <button
+            id="settingsButton"
+            class="icon-button hidden"
+            type="button"
+            aria-label="Sivunvaihtojen asetukset"
+            title="Sivunvaihtojen asetukset"
+          >
+            Sivunvaihdot
+          </button>
+        </div>
+      </header>
+
+      <!-- PDF-näkymä -->
+      <section
+        id="pdfArea"
+        class="pdf-area fit-page"
+      >
+        <div
+          id="turnWarning"
+          class="turn-warning hidden"
+        >
+          <div>
+            <strong id="turnWarningText">
+              Sivu vaihtuu
+            </strong>
+
+            <span id="turnWarningCountdown">
+              5 s
+            </span>
+          </div>
+
+          <div class="warning-track">
+            <div
+              id="warningProgress"
+              class="warning-progress"
+            ></div>
+          </div>
+        </div>
+
+        <canvas id="pdfCanvas"></canvas>
+
+        <button
+          id="previousPageButton"
+          class="page-touch-area page-touch-left hidden"
+          type="button"
+          aria-label="Edellinen sivu"
+          title="Edellinen sivu"
+        >
+          ‹
+        </button>
+
+        <button
+          id="nextPageButton"
+          class="page-touch-area page-touch-right hidden"
+          type="button"
+          aria-label="Seuraava sivu"
+          title="Seuraava sivu"
+        >
+          ›
+        </button>
+      </section>
+
+      <!-- Taustanauhan toisto -->
+      <section class="transport">
+        <div class="transport-main">
+          <button
+            id="restartButton"
+            class="transport-button media-symbol-button"
+            type="button"
+            aria-label="Palaa kappaleen alkuun"
+            title="Palaa kappaleen alkuun"
+          >
+            ⏮
+          </button>
+
+          <button
+            id="playPauseButton"
+            class="play-button media-symbol-button"
+            type="button"
+            aria-label="Toista"
+            title="Toista"
+          >
+            ▶
+          </button>
+
+          <button
+            id="nextSongButton"
+            class="transport-button media-symbol-button"
+            type="button"
+            aria-label="Seuraava kappale"
+            title="Seuraava kappale"
+          >
+            ⏭
+          </button>
+        </div>
+
+        <div class="time-row">
+          <span id="currentTime">
+            00:00
+          </span>
+
+          <input
+            id="audioSeek"
+            type="range"
+            min="0"
+            max="0"
+            value="0"
+            step="0.1"
+            aria-label="Toistokohta"
+          >
+
+          <span id="duration">
+            00:00
+          </span>
+        </div>
+
+        <audio
+          id="audioPlayer"
+          preload="metadata"
+        ></audio>
+      </section>
+    </section>
+
+    <!-- Sivunvaihtojen asetukset -->
+    <dialog id="settingsDialog">
+      <form
+        method="dialog"
+        class="dialog-content"
+      >
+        <header class="dialog-header">
+          <div>
+            <h2>Sivunvaihdot</h2>
+            <p id="settingsSongTitle"></p>
+          </div>
+
+          <button
+            id="closeSettingsButton"
+            class="icon-button"
+            type="submit"
+            value="cancel"
+          >
+            Sulje
+          </button>
+        </header>
+
+        <label class="setting-row">
+          <span>
+            <strong>
+              Automaattiset sivunvaihdot
+            </strong>
+
+            <small>
+              Vaihda sivua taustanauhan ajan perusteella
+            </small>
+          </span>
+
+          <input
+            id="autoTurnEnabled"
+            type="checkbox"
+            checked
+          >
+        </label>
+
+        <label class="setting-row">
+          <span>
+            <strong>Varoitusaika</strong>
+
+            <small>
+              Näytetään ennen sivunvaihtoa
+            </small>
+          </span>
+
+          <select id="warningSeconds">
+            <option value="3">
+              3 sekuntia
+            </option>
+
+            <option
+              value="5"
+              selected
+            >
+              5 sekuntia
+            </option>
+
+            <option value="8">
+              8 sekuntia
+            </option>
+
+            <option value="10">
+              10 sekuntia
+            </option>
+          </select>
+        </label>
+
+        <section class="training-section">
+          <h3>Opeta sivunvaihdot</h3>
+
+          <p>
+            Käynnistä opetustila ja vaihda sivua
+            haluamissasi kohdissa.
+          </p>
+
+          <button
+            id="startTrainingButton"
+            type="button"
+            class="primary-button full-width"
+          >
+            Aloita opetus
+          </button>
+
+          <button
+            id="stopTrainingButton"
+            type="button"
+            class="danger-button full-width hidden"
+          >
+            Lopeta ja tallenna
+          </button>
+        </section>
+
+        <section>
+          <div class="section-heading">
+            <h3>Tallennetut vaihdot</h3>
+
+            <button
+              id="clearPageTurnsButton"
+              type="button"
+              class="text-button"
+            >
+              Poista kaikki
+            </button>
+          </div>
+
+          <div
+            id="pageTurnList"
+            class="page-turn-list"
+          ></div>
+        </section>
+      </form>
+    </dialog>
+
+    <div
+      id="toast"
+      class="toast hidden"
+      role="status"
+      aria-live="polite"
+    ></div>
+  </main>
+
+  <script
+    type="module"
+    src="./app.js"
+  ></script>
+</body>
+</html>

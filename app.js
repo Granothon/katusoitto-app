@@ -1,0 +1,2815 @@
+import * as pdfjsLib from "./vendor/pdf.js";
+
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  "./vendor/pdf.worker.js";
+
+const DB_NAME = "katusoitto-db";
+const DB_VERSION = 1;
+const SONG_STORE = "songs";
+
+const MIN_PDF_ZOOM = 1;
+const MAX_PDF_ZOOM = 4;
+
+let db;
+let songs = [];
+
+let currentSong = null;
+let currentPdf = null;
+let currentPage = 1;
+
+let audioObjectUrl = null;
+
+let trainingMode = false;
+let rendering = false;
+let pendingRenderPage = null;
+
+/*
+ * PDF:n zoomaus.
+ *
+ * Arvo 1 tarkoittaa Fit page -tilaa.
+ */
+let pdfZoom = 1;
+
+let pinchStartDistance = 0;
+let pinchStartZoom = 1;
+let pinchPreviewZoom = 1;
+let pinchInProgress = false;
+
+let lastPdfTapTime = 0;
+
+let pendingImport = {
+  pdf: null,
+  mp3: null
+};
+
+/*
+ * Kirjaston elementit
+ */
+
+const libraryView =
+  document.querySelector("#libraryView");
+
+const playerView =
+  document.querySelector("#playerView");
+
+const songGrid =
+  document.querySelector("#songGrid");
+
+const emptyState =
+  document.querySelector("#emptyState");
+
+const songCount =
+  document.querySelector("#songCount");
+
+/*
+ * Tiedostojen lisäys
+ */
+
+const dropZone =
+  document.querySelector("#dropZone");
+
+const dropZoneTitle =
+  document.querySelector("#dropZoneTitle");
+
+const dropZoneStatus =
+  document.querySelector("#dropZoneStatus");
+
+const pendingFiles =
+  document.querySelector("#pendingFiles");
+
+const pendingPdf =
+  document.querySelector("#pendingPdf");
+
+const pendingMp3 =
+  document.querySelector("#pendingMp3");
+
+const fileInput =
+  document.querySelector("#fileInput");
+
+const chooseFilesButton =
+  document.querySelector("#chooseFilesButton");
+
+/*
+ * Soittotilan elementit
+ */
+
+const backButton =
+  document.querySelector("#backButton");
+
+const currentSongTitle =
+  document.querySelector("#currentSongTitle");
+
+const pageIndicator =
+  document.querySelector("#pageIndicator");
+
+const pdfArea =
+  document.querySelector("#pdfArea");
+
+const pdfCanvas =
+  document.querySelector("#pdfCanvas");
+
+const previousPageButton =
+  document.querySelector("#previousPageButton");
+
+const nextPageButton =
+  document.querySelector("#nextPageButton");
+
+/*
+ * Taustanauha
+ */
+
+const audioPlayer =
+  document.querySelector("#audioPlayer");
+
+const playPauseButton =
+  document.querySelector("#playPauseButton");
+
+const restartButton =
+  document.querySelector("#restartButton");
+
+const nextSongButton =
+  document.querySelector("#nextSongButton");
+
+const audioSeek =
+  document.querySelector("#audioSeek");
+
+const currentTimeElement =
+  document.querySelector("#currentTime");
+
+const durationElement =
+  document.querySelector("#duration");
+
+/*
+ * Sivunvaihtojen asetukset
+ */
+
+const settingsButton =
+  document.querySelector("#settingsButton");
+
+const settingsDialog =
+  document.querySelector("#settingsDialog");
+
+const settingsSongTitle =
+  document.querySelector("#settingsSongTitle");
+
+const autoTurnEnabled =
+  document.querySelector("#autoTurnEnabled");
+
+const warningSeconds =
+  document.querySelector("#warningSeconds");
+
+const startTrainingButton =
+  document.querySelector("#startTrainingButton");
+
+const stopTrainingButton =
+  document.querySelector("#stopTrainingButton");
+
+const clearPageTurnsButton =
+  document.querySelector("#clearPageTurnsButton");
+
+const pageTurnList =
+  document.querySelector("#pageTurnList");
+
+/*
+ * Sivunvaihdon varoitus
+ */
+
+const turnWarning =
+  document.querySelector("#turnWarning");
+
+const turnWarningText =
+  document.querySelector("#turnWarningText");
+
+const turnWarningCountdown =
+  document.querySelector("#turnWarningCountdown");
+
+const warningProgress =
+  document.querySelector("#warningProgress");
+
+const toast =
+  document.querySelector("#toast");
+
+/*
+ * IndexedDB
+ */
+
+async function openDatabase() {
+  return new Promise((resolve, reject) => {
+    const request =
+      indexedDB.open(
+        DB_NAME,
+        DB_VERSION
+      );
+
+    request.onupgradeneeded = () => {
+      const database =
+        request.result;
+
+      if (
+        !database.objectStoreNames.contains(
+          SONG_STORE
+        )
+      ) {
+        const store =
+          database.createObjectStore(
+            SONG_STORE,
+            {
+              keyPath: "id"
+            }
+          );
+
+        store.createIndex(
+          "createdAt",
+          "createdAt"
+        );
+      }
+    };
+
+    request.onsuccess = () => {
+      resolve(request.result);
+    };
+
+    request.onerror = () => {
+      reject(request.error);
+    };
+  });
+}
+
+async function getAllSongs() {
+  return new Promise((resolve, reject) => {
+    const transaction =
+      db.transaction(
+        SONG_STORE,
+        "readonly"
+      );
+
+    const store =
+      transaction.objectStore(
+        SONG_STORE
+      );
+
+    const request =
+      store.getAll();
+
+    request.onsuccess = () => {
+      const result =
+        request.result.sort(
+          (a, b) => {
+            return a.createdAt.localeCompare(
+              b.createdAt
+            );
+          }
+        );
+
+      resolve(result);
+    };
+
+    request.onerror = () => {
+      reject(request.error);
+    };
+  });
+}
+
+async function saveSong(song) {
+  return new Promise((resolve, reject) => {
+    const transaction =
+      db.transaction(
+        SONG_STORE,
+        "readwrite"
+      );
+
+    transaction
+      .objectStore(SONG_STORE)
+      .put(song);
+
+    transaction.oncomplete = () => {
+      resolve();
+    };
+
+    transaction.onerror = () => {
+      reject(transaction.error);
+    };
+  });
+}
+
+async function removeSong(id) {
+  return new Promise((resolve, reject) => {
+    const transaction =
+      db.transaction(
+        SONG_STORE,
+        "readwrite"
+      );
+
+    transaction
+      .objectStore(SONG_STORE)
+      .delete(id);
+
+    transaction.oncomplete = () => {
+      resolve();
+    };
+
+    transaction.onerror = () => {
+      reject(transaction.error);
+    };
+  });
+}
+
+/*
+ * PDF:n sivumäärä
+ */
+
+async function readPdfPageCount(file) {
+  let pdfDocument = null;
+
+  try {
+    const data =
+      await file.arrayBuffer();
+
+    pdfDocument =
+      await pdfjsLib
+        .getDocument({
+          data,
+          isEvalSupported: false,
+          enableScripting: false,
+          enableXfa: false
+        })
+        .promise;
+
+    return pdfDocument.numPages;
+  } catch (error) {
+    console.error(
+      "PDF:n sivumäärän lukeminen epäonnistui:",
+      error
+    );
+
+    return 1;
+  } finally {
+    if (pdfDocument) {
+      try {
+        await pdfDocument.destroy();
+      } catch (error) {
+        console.warn(
+          "PDF-dokumentin vapauttaminen epäonnistui:",
+          error
+        );
+      }
+    }
+  }
+}
+
+async function ensurePdfPageCounts() {
+  let songsUpdated = false;
+
+  for (const song of songs) {
+    const savedPageCount =
+      Number(
+        song.pdf?.pageCount
+      );
+
+    if (
+      Number.isInteger(savedPageCount) &&
+      savedPageCount > 0
+    ) {
+      continue;
+    }
+
+    if (!song.pdf?.file) {
+      song.pdf.pageCount = 1;
+
+      await saveSong(song);
+
+      songsUpdated = true;
+      continue;
+    }
+
+    try {
+      song.pdf.pageCount =
+        await readPdfPageCount(
+          song.pdf.file
+        );
+
+      await saveSong(song);
+
+      songsUpdated = true;
+    } catch (error) {
+      console.error(
+        `Kappaleen "${song.title}" sivumäärän lukeminen epäonnistui:`,
+        error
+      );
+    }
+  }
+
+  if (songsUpdated) {
+    songs =
+      await getAllSongs();
+  }
+}
+
+/*
+ * Tiedostojen lisääminen
+ */
+
+async function addFiles(fileList) {
+  const files =
+    [...fileList];
+
+  let recognizedFileFound =
+    false;
+
+  for (const file of files) {
+    const lowerName =
+      file.name.toLowerCase();
+
+    const isPdf =
+      file.type === "application/pdf" ||
+      lowerName.endsWith(".pdf");
+
+    const isMp3 =
+      file.type === "audio/mpeg" ||
+      lowerName.endsWith(".mp3");
+
+    if (isPdf) {
+      pendingImport.pdf = file;
+      recognizedFileFound = true;
+    }
+
+    if (isMp3) {
+      pendingImport.mp3 = file;
+      recognizedFileFound = true;
+    }
+  }
+
+  if (!recognizedFileFound) {
+    showToast(
+      "Tiedoston pitää olla PDF tai MP3."
+    );
+
+    return;
+  }
+
+  updatePendingImportDisplay();
+
+  if (
+    !pendingImport.pdf ||
+    !pendingImport.mp3
+  ) {
+    if (pendingImport.pdf) {
+      showToast(
+        "PDF on valmis. Lisää vielä MP3."
+      );
+    } else {
+      showToast(
+        "MP3 on valmis. Lisää vielä PDF."
+      );
+    }
+
+    return;
+  }
+
+  await createSongFromPendingFiles();
+}
+
+async function createSongFromPendingFiles() {
+  const pdfFile =
+    pendingImport.pdf;
+
+  const mp3File =
+    pendingImport.mp3;
+
+  if (!pdfFile || !mp3File) {
+    return;
+  }
+
+  dropZoneTitle.textContent =
+    "Tallennetaan kappaletta";
+
+  dropZoneStatus.textContent =
+    "";
+
+  try {
+    const title =
+      findCommonTitle(
+        pdfFile.name,
+        mp3File.name
+      );
+
+    const [
+      metadata,
+      pageCount
+    ] = await Promise.all([
+      readAudioMetadata(mp3File),
+      readPdfPageCount(pdfFile)
+    ]);
+
+    const song = {
+      id: crypto.randomUUID(),
+
+      title,
+
+      createdAt:
+        new Date().toISOString(),
+
+      pdf: {
+        name: pdfFile.name,
+        file: pdfFile,
+        pageCount
+      },
+
+      audio: {
+        name: mp3File.name,
+        file: mp3File,
+        duration: metadata.duration
+      },
+
+      settings: {
+        autoTurnEnabled: true,
+        warningSeconds: 5
+      },
+
+      pageTurns: []
+    };
+
+    await saveSong(song);
+
+    pendingImport = {
+      pdf: null,
+      mp3: null
+    };
+
+    fileInput.value = "";
+
+    songs =
+      await getAllSongs();
+
+    updatePendingImportDisplay();
+    renderLibrary();
+
+    showToast(
+      `Kappale "${title}" lisättiin kirjastoon.`
+    );
+  } catch (error) {
+    console.error(error);
+
+    showToast(
+      "Kappaleen tallentaminen epäonnistui."
+    );
+
+    updatePendingImportDisplay();
+  }
+}
+
+function updatePendingImportDisplay() {
+  const hasPdf =
+    Boolean(
+      pendingImport.pdf
+    );
+
+  const hasMp3 =
+    Boolean(
+      pendingImport.mp3
+    );
+
+  const hasPendingFile =
+    hasPdf || hasMp3;
+
+  pendingFiles.classList.toggle(
+    "hidden",
+    !hasPendingFile
+  );
+
+  pendingPdf.className = [
+    "pending-file",
+    hasPdf
+      ? "ready"
+      : "waiting"
+  ].join(" ");
+
+  pendingMp3.className = [
+    "pending-file",
+    hasMp3
+      ? "ready"
+      : "waiting"
+  ].join(" ");
+
+  pendingPdf.textContent =
+    hasPdf
+      ? `PDF: ${pendingImport.pdf.name}`
+      : "PDF puuttuu";
+
+  pendingMp3.textContent =
+    hasMp3
+      ? `MP3: ${pendingImport.mp3.name}`
+      : "MP3 puuttuu";
+
+  if (hasPdf && !hasMp3) {
+    dropZoneTitle.textContent =
+      "Lisää MP3-taustanauha";
+
+    dropZoneStatus.textContent =
+      "PDF on valittu";
+  } else if (!hasPdf && hasMp3) {
+    dropZoneTitle.textContent =
+      "Lisää PDF-nuotti";
+
+    dropZoneStatus.textContent =
+      "MP3 on valittu";
+  } else if (hasPdf && hasMp3) {
+    dropZoneTitle.textContent =
+      "Tallennetaan kappaletta";
+
+    dropZoneStatus.textContent =
+      "";
+  } else {
+    dropZoneTitle.textContent =
+      "Lisää uusi kappale";
+
+    dropZoneStatus.textContent =
+      "Pudota PDF ja MP3 tähän";
+  }
+}
+
+function cleanFileName(name) {
+  return name
+    .replace(
+      /\.(pdf|mp3)$/i,
+      ""
+    )
+    .replace(
+      /[-_]*(backing|track|tausta|nuotti|score|instrumental)[-_]*/gi,
+      " "
+    )
+    .replace(
+      /[_-]+/g,
+      " "
+    )
+    .replace(
+      /\s+/g,
+      " "
+    )
+    .trim();
+}
+
+function findCommonTitle(
+  pdfName,
+  mp3Name
+) {
+  const pdfTitle =
+    cleanFileName(pdfName);
+
+  const mp3Title =
+    cleanFileName(mp3Name);
+
+  if (
+    pdfTitle.toLowerCase() ===
+    mp3Title.toLowerCase()
+  ) {
+    return pdfTitle;
+  }
+
+  return (
+    pdfTitle ||
+    mp3Title ||
+    "Nimetön kappale"
+  );
+}
+
+function readAudioMetadata(file) {
+  return new Promise(resolve => {
+    const audio =
+      new Audio();
+
+    const url =
+      URL.createObjectURL(file);
+
+    audio.preload = "metadata";
+    audio.src = url;
+
+    audio.onloadedmetadata = () => {
+      const duration =
+        Number.isFinite(
+          audio.duration
+        )
+          ? audio.duration
+          : 0;
+
+      URL.revokeObjectURL(url);
+
+      resolve({
+        duration
+      });
+    };
+
+    audio.onerror = () => {
+      URL.revokeObjectURL(url);
+
+      resolve({
+        duration: 0
+      });
+    };
+  });
+}
+
+/*
+ * Kirjasto
+ */
+
+function renderLibrary() {
+  songGrid.innerHTML = "";
+
+  songCount.textContent =
+    `${songs.length} ${
+      songs.length === 1
+        ? "kappale"
+        : "kappaletta"
+    }`;
+
+  emptyState.classList.toggle(
+    "hidden",
+    songs.length > 0
+  );
+
+  for (const song of songs) {
+    const card =
+      document.createElement(
+        "button"
+      );
+
+    card.className =
+      "song-card";
+
+    card.type =
+      "button";
+
+    const pageCount =
+      Number(
+        song.pdf?.pageCount
+      ) || 1;
+
+    const pageTurnInformation =
+      pageCount > 1
+        ? `
+          <span>
+            ${pageCount} sivua
+          </span>
+
+          <span>
+            Sivunvaihtoja
+            ${song.pageTurns.length}
+          </span>
+
+          <span>
+            ${
+              song.settings.autoTurnEnabled
+                ? "Automaattivaihto käytössä"
+                : "Automaattivaihto pois käytöstä"
+            }
+          </span>
+        `
+        : "";
+
+    card.innerHTML = `
+      <strong class="song-card-title">
+        ${escapeHtml(song.title)}
+      </strong>
+
+      <span class="song-card-details">
+        <span>
+          Taustanauha
+          ${formatTime(
+            song.audio.duration
+          )}
+        </span>
+
+        ${pageTurnInformation}
+      </span>
+
+      <span
+        class="delete-song-button"
+        role="button"
+        aria-label="Poista kappale"
+        title="Poista kappale"
+        data-delete-id="${song.id}"
+      >
+        ✕
+      </span>
+    `;
+
+    card.addEventListener(
+      "click",
+      event => {
+        const deleteButton =
+          event.target.closest(
+            "[data-delete-id]"
+          );
+
+        if (deleteButton) {
+          event.stopPropagation();
+
+          deleteSong(song);
+
+          return;
+        }
+
+        openSong(song.id);
+      }
+    );
+
+    songGrid.appendChild(
+      card
+    );
+  }
+}
+
+async function deleteSong(song) {
+  const accepted =
+    confirm(
+      `Poistetaanko kappale "${song.title}" kirjastosta?`
+    );
+
+  if (!accepted) {
+    return;
+  }
+
+  if (
+    currentSong?.id ===
+    song.id
+  ) {
+    resetCurrentPlayback();
+  }
+
+  await removeSong(song.id);
+
+  songs =
+    await getAllSongs();
+
+  renderLibrary();
+
+  showToast(
+    "Kappale poistettiin kirjastosta."
+  );
+}
+
+/*
+ * Toistopainikkeen tila
+ */
+
+function updatePlayPauseButton(
+  isPlaying
+) {
+  if (isPlaying) {
+    playPauseButton.textContent =
+      "⏸";
+
+    playPauseButton.setAttribute(
+      "aria-label",
+      "Keskeytä toisto"
+    );
+
+    playPauseButton.title =
+      "Keskeytä toisto";
+  } else {
+    playPauseButton.textContent =
+      "▶";
+
+    playPauseButton.setAttribute(
+      "aria-label",
+      "Toista"
+    );
+
+    playPauseButton.title =
+      "Toista";
+  }
+}
+
+/*
+ * Toiston resetointi
+ */
+
+function resetCurrentPlayback() {
+  audioPlayer.pause();
+
+  try {
+    audioPlayer.currentTime = 0;
+  } catch (error) {
+    console.warn(
+      "Toistokohtaa ei voitu palauttaa:",
+      error
+    );
+  }
+
+  audioPlayer.removeAttribute(
+    "src"
+  );
+
+  audioPlayer.load();
+
+  if (audioObjectUrl) {
+    URL.revokeObjectURL(
+      audioObjectUrl
+    );
+
+    audioObjectUrl = null;
+  }
+
+  updatePlayPauseButton(false);
+
+  currentTimeElement.textContent =
+    "00:00";
+
+  durationElement.textContent =
+    "00:00";
+
+  audioSeek.value = 0;
+  audioSeek.max = 0;
+
+  hideTurnWarning();
+
+  trainingMode = false;
+
+  startTrainingButton.classList.remove(
+    "hidden"
+  );
+
+  stopTrainingButton.classList.add(
+    "hidden"
+  );
+}
+
+/*
+ * PDF-zoomauksen resetointi
+ */
+
+function resetPdfZoomState() {
+  pdfZoom = 1;
+
+  pinchStartDistance = 0;
+  pinchStartZoom = 1;
+  pinchPreviewZoom = 1;
+  pinchInProgress = false;
+
+  pdfCanvas.style.transform =
+    "none";
+
+  pdfArea.classList.remove(
+    "zoomed"
+  );
+
+  pdfArea.classList.add(
+    "fit-page"
+  );
+
+  pdfArea.scrollTop = 0;
+  pdfArea.scrollLeft = 0;
+}
+
+/*
+ * Kappaleen avaaminen
+ */
+
+async function openSong(id) {
+  const nextSong =
+    songs.find(song => {
+      return song.id === id;
+    });
+
+  if (!nextSong) {
+    return;
+  }
+
+  resetCurrentPlayback();
+  resetPdfZoomState();
+
+  currentSong =
+    nextSong;
+
+  currentPdf = null;
+  currentPage = 1;
+  pendingRenderPage = null;
+
+  pdfCanvas.width = 0;
+  pdfCanvas.height = 0;
+
+  pdfCanvas.style.width =
+    "0px";
+
+  pdfCanvas.style.height =
+    "0px";
+
+  currentSongTitle.textContent =
+    currentSong.title;
+
+  settingsSongTitle.textContent =
+    currentSong.title;
+
+  pageIndicator.textContent =
+    "Ladataan nuottia...";
+
+  settingsButton.classList.add(
+    "hidden"
+  );
+
+  pageIndicator.classList.add(
+    "hidden"
+  );
+
+  previousPageButton.classList.add(
+    "hidden"
+  );
+
+  nextPageButton.classList.add(
+    "hidden"
+  );
+
+  libraryView.classList.add(
+    "hidden"
+  );
+
+  playerView.classList.remove(
+    "hidden"
+  );
+
+  loadAudio(
+    currentSong.audio.file
+  );
+
+  try {
+    await loadPdf(
+      currentSong.pdf.file
+    );
+
+    if (
+      currentSong.pdf.pageCount !==
+      currentPdf.numPages
+    ) {
+      currentSong.pdf.pageCount =
+        currentPdf.numPages;
+
+      await saveSong(
+        currentSong
+      );
+
+      updateSongInMemory();
+    }
+
+    updatePageIndicator();
+    renderPageTurnList();
+  } catch (error) {
+    console.error(error);
+
+    showToast(
+      "Nuotin avaaminen epäonnistui."
+    );
+  }
+}
+
+async function loadPdf(file) {
+  const data =
+    await file.arrayBuffer();
+
+  currentPdf =
+    await pdfjsLib
+      .getDocument({
+        data,
+        isEvalSupported: false,
+        enableScripting: false,
+        enableXfa: false
+      })
+      .promise;
+
+  await renderPage(1);
+}
+
+/*
+ * PDF:n näyttäminen
+ */
+
+async function renderPage(pageNumber) {
+  if (!currentPdf) {
+    return;
+  }
+
+  if (rendering) {
+    pendingRenderPage =
+      pageNumber;
+
+    return;
+  }
+
+  rendering = true;
+
+  try {
+    currentPage =
+      Math.max(
+        1,
+        Math.min(
+          pageNumber,
+          currentPdf.numPages
+        )
+      );
+
+    const page =
+      await currentPdf.getPage(
+        currentPage
+      );
+
+    const originalViewport =
+      page.getViewport({
+        scale: 1
+      });
+
+    const availableWidth =
+      Math.max(
+        100,
+        pdfArea.clientWidth - 20
+      );
+
+    const availableHeight =
+      Math.max(
+        100,
+        pdfArea.clientHeight - 20
+      );
+
+    const widthScale =
+      availableWidth /
+      originalViewport.width;
+
+    const heightScale =
+      availableHeight /
+      originalViewport.height;
+
+    const fitPageScale =
+      Math.min(
+        widthScale,
+        heightScale
+      );
+
+    const displayScale =
+      fitPageScale *
+      pdfZoom;
+
+    const pixelRatio =
+      Math.min(
+        window.devicePixelRatio || 1,
+        2
+      );
+
+    const displayViewport =
+      page.getViewport({
+        scale: displayScale
+      });
+
+    const renderViewport =
+      page.getViewport({
+        scale:
+          displayScale *
+          pixelRatio
+      });
+
+    const context =
+      pdfCanvas.getContext(
+        "2d",
+        {
+          alpha: false
+        }
+      );
+
+    pdfCanvas.width =
+      Math.floor(
+        renderViewport.width
+      );
+
+    pdfCanvas.height =
+      Math.floor(
+        renderViewport.height
+      );
+
+    pdfCanvas.style.width =
+      `${Math.floor(
+        displayViewport.width
+      )}px`;
+
+    pdfCanvas.style.height =
+      `${Math.floor(
+        displayViewport.height
+      )}px`;
+
+    pdfCanvas.style.transform =
+      "none";
+
+    await page.render({
+      canvasContext: context,
+      viewport: renderViewport
+    }).promise;
+
+    updatePdfZoomLayout();
+    updatePageIndicator();
+  } catch (error) {
+    console.error(
+      "PDF-sivun näyttäminen epäonnistui:",
+      error
+    );
+
+    showToast(
+      "Nuottisivun näyttäminen epäonnistui."
+    );
+  } finally {
+    rendering = false;
+
+    if (
+      pendingRenderPage !== null
+    ) {
+      const nextPage =
+        pendingRenderPage;
+
+      pendingRenderPage = null;
+
+      renderPage(nextPage);
+    }
+  }
+}
+
+/*
+ * PDF:n zoomaus
+ */
+
+function clampPdfZoom(value) {
+  return Math.min(
+    MAX_PDF_ZOOM,
+    Math.max(
+      MIN_PDF_ZOOM,
+      value
+    )
+  );
+}
+
+function updatePdfZoomLayout() {
+  const isZoomed =
+    pdfZoom > 1.01;
+
+  pdfArea.classList.toggle(
+    "zoomed",
+    isZoomed
+  );
+
+  pdfArea.classList.toggle(
+    "fit-page",
+    !isZoomed
+  );
+
+  if (!isZoomed) {
+    pdfArea.scrollTop = 0;
+    pdfArea.scrollLeft = 0;
+  }
+}
+
+async function setPdfZoom(
+  newZoom,
+  showMessage = false
+) {
+  if (!currentPdf) {
+    return;
+  }
+
+  const clampedZoom =
+    clampPdfZoom(newZoom);
+
+  if (
+    Math.abs(
+      clampedZoom -
+      pdfZoom
+    ) < 0.01
+  ) {
+    pdfCanvas.style.transform =
+      "none";
+
+    return;
+  }
+
+  const oldScrollableWidth =
+    Math.max(
+      1,
+      pdfArea.scrollWidth -
+        pdfArea.clientWidth
+    );
+
+  const oldScrollableHeight =
+    Math.max(
+      1,
+      pdfArea.scrollHeight -
+        pdfArea.clientHeight
+    );
+
+  const horizontalPosition =
+    pdfArea.scrollLeft /
+    oldScrollableWidth;
+
+  const verticalPosition =
+    pdfArea.scrollTop /
+    oldScrollableHeight;
+
+  pdfZoom =
+    clampedZoom;
+
+  await renderPage(
+    currentPage
+  );
+
+  requestAnimationFrame(() => {
+    const newScrollableWidth =
+      Math.max(
+        0,
+        pdfArea.scrollWidth -
+          pdfArea.clientWidth
+      );
+
+    const newScrollableHeight =
+      Math.max(
+        0,
+        pdfArea.scrollHeight -
+          pdfArea.clientHeight
+      );
+
+    pdfArea.scrollLeft =
+      newScrollableWidth *
+      horizontalPosition;
+
+    pdfArea.scrollTop =
+      newScrollableHeight *
+      verticalPosition;
+  });
+
+  if (showMessage) {
+    if (pdfZoom <= 1.01) {
+      showToast(
+        "Sovita sivu"
+      );
+    } else {
+      showToast(
+        `Zoom ${Math.round(
+          pdfZoom * 100
+        )} %`
+      );
+    }
+  }
+}
+
+async function resetPdfZoom(
+  showMessage = false
+) {
+  if (!currentPdf) {
+    return;
+  }
+
+  pdfZoom = 1;
+
+  await renderPage(
+    currentPage
+  );
+
+  if (showMessage) {
+    showToast(
+      "Sovita sivu"
+    );
+  }
+}
+
+function getTouchDistance(
+  firstTouch,
+  secondTouch
+) {
+  const horizontalDistance =
+    secondTouch.clientX -
+    firstTouch.clientX;
+
+  const verticalDistance =
+    secondTouch.clientY -
+    firstTouch.clientY;
+
+  return Math.hypot(
+    horizontalDistance,
+    verticalDistance
+  );
+}
+
+/*
+ * Sivujen kontrollit
+ */
+
+function updatePageControls() {
+  const pageCount =
+    currentPdf?.numPages ??
+    Number(
+      currentSong?.pdf?.pageCount
+    ) ??
+    1;
+
+  const hasMultiplePages =
+    pageCount > 1;
+
+  settingsButton.classList.toggle(
+    "hidden",
+    !hasMultiplePages
+  );
+
+  pageIndicator.classList.toggle(
+    "hidden",
+    !hasMultiplePages
+  );
+
+  previousPageButton.classList.toggle(
+    "hidden",
+    !hasMultiplePages
+  );
+
+  nextPageButton.classList.toggle(
+    "hidden",
+    !hasMultiplePages
+  );
+}
+
+function updatePageIndicator() {
+  const pageCount =
+    currentPdf?.numPages ??
+    Number(
+      currentSong?.pdf?.pageCount
+    ) ??
+    1;
+
+  pageIndicator.textContent =
+    `Sivu ${currentPage} / ${pageCount}`;
+
+  updatePageControls();
+}
+
+/*
+ * Manuaalinen sivunvaihto
+ */
+
+async function nextPage() {
+  if (
+    !currentPdf ||
+    currentPage >=
+      currentPdf.numPages
+  ) {
+    return;
+  }
+
+  const nextPageNumber =
+    currentPage + 1;
+
+  if (trainingMode) {
+    await recordPageTurn(
+      nextPageNumber
+    );
+  }
+
+  await renderPage(
+    nextPageNumber
+  );
+}
+
+async function previousPage() {
+  if (
+    !currentPdf ||
+    currentPage <= 1
+  ) {
+    return;
+  }
+
+  await renderPage(
+    currentPage - 1
+  );
+}
+
+async function recordPageTurn(
+  targetPage
+) {
+  const time =
+    Number(
+      audioPlayer.currentTime
+        .toFixed(2)
+    );
+
+  currentSong.pageTurns =
+    currentSong.pageTurns.filter(
+      turn => {
+        return (
+          turn.toPage !==
+          targetPage
+        );
+      }
+    );
+
+  currentSong.pageTurns.push({
+    fromPage:
+      targetPage - 1,
+
+    toPage:
+      targetPage,
+
+    time
+  });
+
+  currentSong.pageTurns.sort(
+    (a, b) => {
+      return a.time - b.time;
+    }
+  );
+
+  await saveSong(
+    currentSong
+  );
+
+  updateSongInMemory();
+  renderPageTurnList();
+
+  showToast(
+    `Sivun ${targetPage} vaihto tallennettiin kohtaan ${formatTime(time)}.`
+  );
+}
+
+/*
+ * Taustanauha
+ */
+
+function loadAudio(file) {
+  if (audioObjectUrl) {
+    URL.revokeObjectURL(
+      audioObjectUrl
+    );
+
+    audioObjectUrl = null;
+  }
+
+  audioObjectUrl =
+    URL.createObjectURL(file);
+
+  audioPlayer.src =
+    audioObjectUrl;
+
+  audioPlayer.load();
+
+  updatePlayPauseButton(false);
+
+  currentTimeElement.textContent =
+    "00:00";
+
+  audioSeek.value = 0;
+
+  durationElement.textContent =
+    formatTime(
+      currentSong.audio.duration
+    );
+}
+
+function togglePlayback() {
+  if (!currentSong) {
+    return;
+  }
+
+  if (audioPlayer.paused) {
+    audioPlayer
+      .play()
+      .catch(error => {
+        console.error(error);
+
+        showToast(
+          "Toiston käynnistäminen epäonnistui."
+        );
+      });
+  } else {
+    audioPlayer.pause();
+  }
+}
+
+async function restartSong() {
+  if (!currentSong) {
+    return;
+  }
+
+  audioPlayer.pause();
+  audioPlayer.currentTime = 0;
+
+  await renderPage(1);
+
+  updatePlayPauseButton(false);
+  hideTurnWarning();
+}
+
+async function openNextSong() {
+  if (
+    !currentSong ||
+    songs.length < 2
+  ) {
+    return;
+  }
+
+  const currentIndex =
+    songs.findIndex(song => {
+      return (
+        song.id ===
+        currentSong.id
+      );
+    });
+
+  const nextIndex =
+    (currentIndex + 1) %
+    songs.length;
+
+  await openSong(
+    songs[nextIndex].id
+  );
+}
+
+/*
+ * Automaattiset sivunvaihdot
+ */
+
+function processAutomaticPageTurns() {
+  if (
+    !currentSong ||
+    !currentSong.settings
+      .autoTurnEnabled ||
+    trainingMode ||
+    audioPlayer.paused
+  ) {
+    hideTurnWarning();
+    return;
+  }
+
+  if (
+    !currentSong.pageTurns ||
+    currentSong.pageTurns.length === 0
+  ) {
+    hideTurnWarning();
+    return;
+  }
+
+  const currentAudioTime =
+    audioPlayer.currentTime;
+
+  const nextTurn =
+    currentSong.pageTurns.find(
+      turn => {
+        return (
+          turn.toPage >
+          currentPage
+        );
+      }
+    );
+
+  if (!nextTurn) {
+    hideTurnWarning();
+    return;
+  }
+
+  const secondsUntilTurn =
+    nextTurn.time -
+    currentAudioTime;
+
+  const warningTime =
+    Number(
+      currentSong.settings
+        .warningSeconds
+    ) || 5;
+
+  if (secondsUntilTurn <= 0) {
+    hideTurnWarning();
+
+    renderPage(
+      nextTurn.toPage
+    );
+
+    return;
+  }
+
+  if (
+    secondsUntilTurn <=
+    warningTime
+  ) {
+    showTurnWarning(
+      nextTurn,
+      secondsUntilTurn,
+      warningTime
+    );
+  } else {
+    hideTurnWarning();
+  }
+}
+
+function showTurnWarning(
+  turn,
+  secondsUntilTurn,
+  totalWarningTime
+) {
+  const elapsed =
+    totalWarningTime -
+    secondsUntilTurn;
+
+  const progress =
+    Math.min(
+      100,
+      Math.max(
+        0,
+        (
+          elapsed /
+          totalWarningTime
+        ) * 100
+      )
+    );
+
+  turnWarning.classList.remove(
+    "hidden"
+  );
+
+  turnWarningText.textContent =
+    `Sivu ${turn.toPage} vaihtuu`;
+
+  turnWarningCountdown.textContent =
+    `${Math.max(
+      1,
+      Math.ceil(
+        secondsUntilTurn
+      )
+    )} s`;
+
+  warningProgress.style.width =
+    `${progress}%`;
+}
+
+function hideTurnWarning() {
+  turnWarning.classList.add(
+    "hidden"
+  );
+
+  warningProgress.style.width =
+    "0%";
+}
+
+/*
+ * Sivunvaihtojen asetukset
+ */
+
+function openSettings() {
+  if (!currentSong) {
+    return;
+  }
+
+  const pageCount =
+    Number(
+      currentSong.pdf?.pageCount
+    ) || 1;
+
+  if (pageCount <= 1) {
+    return;
+  }
+
+  autoTurnEnabled.checked =
+    currentSong.settings
+      .autoTurnEnabled;
+
+  warningSeconds.value =
+    String(
+      currentSong.settings
+        .warningSeconds
+    );
+
+  renderPageTurnList();
+
+  settingsDialog.showModal();
+}
+
+async function updateSettings() {
+  if (!currentSong) {
+    return;
+  }
+
+  currentSong.settings
+    .autoTurnEnabled =
+      autoTurnEnabled.checked;
+
+  currentSong.settings
+    .warningSeconds =
+      Number(
+        warningSeconds.value
+      );
+
+  await saveSong(
+    currentSong
+  );
+
+  updateSongInMemory();
+}
+
+function updateSongInMemory() {
+  if (!currentSong) {
+    return;
+  }
+
+  const index =
+    songs.findIndex(song => {
+      return (
+        song.id ===
+        currentSong.id
+      );
+    });
+
+  if (index !== -1) {
+    songs[index] =
+      currentSong;
+  }
+}
+
+/*
+ * Sivunvaihtojen opetustila
+ */
+
+async function startTraining() {
+  if (!currentSong) {
+    return;
+  }
+
+  const pageCount =
+    Number(
+      currentSong.pdf?.pageCount
+    ) || 1;
+
+  if (pageCount <= 1) {
+    return;
+  }
+
+  const accepted =
+    currentSong.pageTurns.length === 0 ||
+    confirm(
+      "Korvataanko aiemmin tallennetut sivunvaihdot?"
+    );
+
+  if (!accepted) {
+    return;
+  }
+
+  currentSong.pageTurns = [];
+
+  await saveSong(
+    currentSong
+  );
+
+  updateSongInMemory();
+
+  trainingMode = true;
+
+  startTrainingButton.classList.add(
+    "hidden"
+  );
+
+  stopTrainingButton.classList.remove(
+    "hidden"
+  );
+
+  settingsDialog.close();
+
+  await restartSong();
+
+  showToast(
+    "Opetustila käynnissä."
+  );
+}
+
+async function stopTraining() {
+  trainingMode = false;
+
+  startTrainingButton.classList.remove(
+    "hidden"
+  );
+
+  stopTrainingButton.classList.add(
+    "hidden"
+  );
+
+  await saveSong(
+    currentSong
+  );
+
+  updateSongInMemory();
+  renderPageTurnList();
+
+  showToast(
+    "Sivunvaihdot tallennettiin."
+  );
+}
+
+function renderPageTurnList() {
+  pageTurnList.innerHTML = "";
+
+  if (
+    !currentSong ||
+    currentSong.pageTurns.length === 0
+  ) {
+    pageTurnList.innerHTML = `
+      <p style="color: var(--muted)">
+        Ei tallennettuja sivunvaihtoja.
+      </p>
+    `;
+
+    return;
+  }
+
+  for (
+    const turn of
+    currentSong.pageTurns
+  ) {
+    const item =
+      document.createElement(
+        "div"
+      );
+
+    item.className =
+      "page-turn-item";
+
+    item.innerHTML = `
+      <strong>
+        Sivu
+        ${turn.fromPage}
+        →
+        ${turn.toPage}
+      </strong>
+
+      <input
+        type="number"
+        min="0"
+        step="0.1"
+        value="${turn.time}"
+        aria-label="Sivunvaihdon aika sekunteina"
+      >
+
+      <button
+        type="button"
+        class="text-button"
+      >
+        Poista
+      </button>
+    `;
+
+    const timeInput =
+      item.querySelector(
+        "input"
+      );
+
+    const deleteButton =
+      item.querySelector(
+        "button"
+      );
+
+    timeInput.addEventListener(
+      "change",
+      async () => {
+        turn.time =
+          Math.max(
+            0,
+            Number(
+              timeInput.value
+            ) || 0
+          );
+
+        currentSong.pageTurns.sort(
+          (a, b) => {
+            return (
+              a.time -
+              b.time
+            );
+          }
+        );
+
+        await saveSong(
+          currentSong
+        );
+
+        updateSongInMemory();
+        renderPageTurnList();
+      }
+    );
+
+    deleteButton.addEventListener(
+      "click",
+      async () => {
+        currentSong.pageTurns =
+          currentSong.pageTurns.filter(
+            savedTurn => {
+              return (
+                savedTurn !==
+                turn
+              );
+            }
+          );
+
+        await saveSong(
+          currentSong
+        );
+
+        updateSongInMemory();
+        renderPageTurnList();
+      }
+    );
+
+    pageTurnList.appendChild(
+      item
+    );
+  }
+}
+
+async function clearPageTurns() {
+  if (
+    !currentSong ||
+    currentSong.pageTurns.length === 0
+  ) {
+    return;
+  }
+
+  const accepted =
+    confirm(
+      "Poistetaanko kaikki tallennetut sivunvaihdot?"
+    );
+
+  if (!accepted) {
+    return;
+  }
+
+  currentSong.pageTurns = [];
+
+  await saveSong(
+    currentSong
+  );
+
+  updateSongInMemory();
+  renderPageTurnList();
+}
+
+/*
+ * Paluu kirjastoon
+ */
+
+function closePlayer() {
+  resetCurrentPlayback();
+  resetPdfZoomState();
+
+  libraryView.classList.remove(
+    "hidden"
+  );
+
+  playerView.classList.add(
+    "hidden"
+  );
+
+  currentSong = null;
+  currentPdf = null;
+  currentPage = 1;
+  pendingRenderPage = null;
+
+  pdfCanvas.width = 0;
+  pdfCanvas.height = 0;
+
+  pdfCanvas.style.width =
+    "0px";
+
+  pdfCanvas.style.height =
+    "0px";
+
+  pageIndicator.textContent =
+    "Sivu 1 / 1";
+
+  settingsButton.classList.add(
+    "hidden"
+  );
+
+  pageIndicator.classList.add(
+    "hidden"
+  );
+
+  previousPageButton.classList.add(
+    "hidden"
+  );
+
+  nextPageButton.classList.add(
+    "hidden"
+  );
+
+  renderLibrary();
+}
+
+/*
+ * Apufunktiot
+ */
+
+function formatTime(seconds) {
+  if (
+    !Number.isFinite(seconds)
+  ) {
+    return "00:00";
+  }
+
+  const minutes =
+    Math.floor(
+      seconds / 60
+    );
+
+  const remainingSeconds =
+    Math.floor(
+      seconds % 60
+    );
+
+  return `${
+    String(minutes).padStart(
+      2,
+      "0"
+    )
+  }:${
+    String(
+      remainingSeconds
+    ).padStart(
+      2,
+      "0"
+    )
+  }`;
+}
+
+function escapeHtml(value) {
+  const div =
+    document.createElement(
+      "div"
+    );
+
+  div.textContent = value;
+
+  return div.innerHTML;
+}
+
+function showToast(message) {
+  toast.textContent =
+    message;
+
+  toast.classList.remove(
+    "hidden"
+  );
+
+  clearTimeout(
+    showToast.timeout
+  );
+
+  showToast.timeout =
+    setTimeout(() => {
+      toast.classList.add(
+        "hidden"
+      );
+    }, 2400);
+}
+
+/*
+ * Tiedostojen valinta
+ */
+
+chooseFilesButton.addEventListener(
+  "click",
+  () => {
+    fileInput.click();
+  }
+);
+
+fileInput.addEventListener(
+  "change",
+  async event => {
+    await addFiles(
+      event.target.files
+    );
+
+    fileInput.value = "";
+  }
+);
+
+/*
+ * Drag and drop
+ */
+
+dropZone.addEventListener(
+  "dragover",
+  event => {
+    event.preventDefault();
+
+    dropZone.classList.add(
+      "dragging"
+    );
+  }
+);
+
+dropZone.addEventListener(
+  "dragleave",
+  event => {
+    if (
+      event.relatedTarget &&
+      dropZone.contains(
+        event.relatedTarget
+      )
+    ) {
+      return;
+    }
+
+    dropZone.classList.remove(
+      "dragging"
+    );
+  }
+);
+
+dropZone.addEventListener(
+  "drop",
+  async event => {
+    event.preventDefault();
+
+    dropZone.classList.remove(
+      "dragging"
+    );
+
+    await addFiles(
+      event.dataTransfer.files
+    );
+  }
+);
+
+/*
+ * Soittimen painikkeet
+ */
+
+backButton.addEventListener(
+  "click",
+  closePlayer
+);
+
+playPauseButton.addEventListener(
+  "click",
+  togglePlayback
+);
+
+restartButton.addEventListener(
+  "click",
+  restartSong
+);
+
+nextSongButton.addEventListener(
+  "click",
+  openNextSong
+);
+
+previousPageButton.addEventListener(
+  "click",
+  previousPage
+);
+
+nextPageButton.addEventListener(
+  "click",
+  nextPage
+);
+
+/*
+ * Sivunvaihtojen asetukset
+ */
+
+settingsButton.addEventListener(
+  "click",
+  openSettings
+);
+
+autoTurnEnabled.addEventListener(
+  "change",
+  updateSettings
+);
+
+warningSeconds.addEventListener(
+  "change",
+  updateSettings
+);
+
+startTrainingButton.addEventListener(
+  "click",
+  startTraining
+);
+
+stopTrainingButton.addEventListener(
+  "click",
+  stopTraining
+);
+
+clearPageTurnsButton.addEventListener(
+  "click",
+  clearPageTurns
+);
+
+/*
+ * Taustanauhan tapahtumat
+ */
+
+audioPlayer.addEventListener(
+  "play",
+  () => {
+    updatePlayPauseButton(true);
+  }
+);
+
+audioPlayer.addEventListener(
+  "pause",
+  () => {
+    updatePlayPauseButton(false);
+  }
+);
+
+audioPlayer.addEventListener(
+  "loadedmetadata",
+  () => {
+    audioSeek.max =
+      audioPlayer.duration || 0;
+
+    durationElement.textContent =
+      formatTime(
+        audioPlayer.duration
+      );
+  }
+);
+
+audioPlayer.addEventListener(
+  "timeupdate",
+  () => {
+    audioSeek.value =
+      audioPlayer.currentTime;
+
+    currentTimeElement.textContent =
+      formatTime(
+        audioPlayer.currentTime
+      );
+
+    processAutomaticPageTurns();
+  }
+);
+
+audioPlayer.addEventListener(
+  "ended",
+  () => {
+    updatePlayPauseButton(false);
+    hideTurnWarning();
+  }
+);
+
+audioSeek.addEventListener(
+  "input",
+  () => {
+    audioPlayer.currentTime =
+      Number(
+        audioSeek.value
+      );
+
+    if (
+      currentSong &&
+      currentSong.pageTurns.length > 0
+    ) {
+      let correctPage = 1;
+
+      for (
+        const turn of
+        currentSong.pageTurns
+      ) {
+        if (
+          turn.time <=
+          audioPlayer.currentTime
+        ) {
+          correctPage =
+            turn.toPage;
+        }
+      }
+
+      if (
+        correctPage !==
+        currentPage
+      ) {
+        renderPage(
+          correctPage
+        );
+      }
+    }
+  }
+);
+
+/*
+ * Pinch-zoomauksen aloitus
+ */
+
+pdfArea.addEventListener(
+  "touchstart",
+  event => {
+    if (
+      event.touches.length !== 2 ||
+      !currentPdf
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+
+    pinchInProgress = true;
+
+    pinchStartDistance =
+      getTouchDistance(
+        event.touches[0],
+        event.touches[1]
+      );
+
+    pinchStartZoom =
+      pdfZoom;
+
+    pinchPreviewZoom =
+      pdfZoom;
+
+    pdfCanvas.style.transformOrigin =
+      "center center";
+  },
+  {
+    passive: false
+  }
+);
+
+/*
+ * Pinch-zoomauksen esikatselu
+ */
+
+pdfArea.addEventListener(
+  "touchmove",
+  event => {
+    if (
+      !pinchInProgress ||
+      event.touches.length !== 2 ||
+      pinchStartDistance <= 0
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+
+    const currentDistance =
+      getTouchDistance(
+        event.touches[0],
+        event.touches[1]
+      );
+
+    const pinchRatio =
+      currentDistance /
+      pinchStartDistance;
+
+    pinchPreviewZoom =
+      clampPdfZoom(
+        pinchStartZoom *
+        pinchRatio
+      );
+
+    const previewScale =
+      pinchPreviewZoom /
+      pdfZoom;
+
+    pdfCanvas.style.transform =
+      `scale(${previewScale})`;
+  },
+  {
+    passive: false
+  }
+);
+
+/*
+ * Pinch-zoomauksen lopetus
+ */
+
+pdfArea.addEventListener(
+  "touchend",
+  async event => {
+    if (!pinchInProgress) {
+      return;
+    }
+
+    if (
+      event.touches.length >= 2
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+
+    pinchInProgress = false;
+
+    pdfCanvas.style.transform =
+      "none";
+
+    await setPdfZoom(
+      pinchPreviewZoom
+    );
+  },
+  {
+    passive: false
+  }
+);
+
+pdfArea.addEventListener(
+  "touchcancel",
+  () => {
+    pinchInProgress = false;
+
+    pdfCanvas.style.transform =
+      "none";
+  }
+);
+
+/*
+ * Ctrl + hiiren rulla
+ */
+
+pdfArea.addEventListener(
+  "wheel",
+  event => {
+    if (
+      !event.ctrlKey ||
+      !currentPdf
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+
+    const zoomMultiplier =
+      event.deltaY < 0
+        ? 1.15
+        : 1 / 1.15;
+
+    setPdfZoom(
+      pdfZoom *
+      zoomMultiplier
+    );
+  },
+  {
+    passive: false
+  }
+);
+
+/*
+ * Kaksoisklikkaus tietokoneella
+ */
+
+pdfCanvas.addEventListener(
+  "dblclick",
+  async event => {
+    event.preventDefault();
+
+    if (!currentPdf) {
+      return;
+    }
+
+    if (pdfZoom > 1.01) {
+      await resetPdfZoom(true);
+    } else {
+      await setPdfZoom(
+        1.75,
+        true
+      );
+    }
+  }
+);
+
+/*
+ * Kaksoisnapautus tabletilla
+ */
+
+pdfCanvas.addEventListener(
+  "touchend",
+  async event => {
+    if (
+      pinchInProgress ||
+      event.changedTouches.length !== 1
+    ) {
+      return;
+    }
+
+    const currentTapTime =
+      Date.now();
+
+    const timeSincePreviousTap =
+      currentTapTime -
+      lastPdfTapTime;
+
+    lastPdfTapTime =
+      currentTapTime;
+
+    if (
+      timeSincePreviousTap > 0 &&
+      timeSincePreviousTap < 320
+    ) {
+      event.preventDefault();
+
+      lastPdfTapTime = 0;
+
+      if (pdfZoom > 1.01) {
+        await resetPdfZoom(true);
+      } else {
+        await setPdfZoom(
+          1.75,
+          true
+        );
+      }
+    }
+  },
+  {
+    passive: false
+  }
+);
+
+/*
+ * Näytön koon muuttuminen
+ */
+
+let resizeTimeout;
+
+window.addEventListener(
+  "resize",
+  () => {
+    clearTimeout(
+      resizeTimeout
+    );
+
+    resizeTimeout =
+      setTimeout(() => {
+        if (currentPdf) {
+          renderPage(
+            currentPage
+          );
+        }
+      }, 150);
+  }
+);
+
+window.addEventListener(
+  "beforeunload",
+  () => {
+    if (audioObjectUrl) {
+      URL.revokeObjectURL(
+        audioObjectUrl
+      );
+    }
+  }
+);
+
+/*
+ * Teema (tumma / kirkas)
+ */
+
+const THEME_STORAGE_KEY =
+  "katusoitto-theme";
+
+const themeColorMeta =
+  document.querySelector("#themeColorMeta");
+
+const THEME_COLORS = {
+  dark: "#0d0e11",
+  light: "#eef0f3"
+};
+
+function getPreferredTheme() {
+  let saved = null;
+
+  try {
+    saved =
+      localStorage.getItem(
+        THEME_STORAGE_KEY
+      );
+  } catch (error) {
+    saved = null;
+  }
+
+  if (
+    saved === "dark" ||
+    saved === "light"
+  ) {
+    return saved;
+  }
+
+  const prefersLight =
+    window.matchMedia &&
+    window.matchMedia(
+      "(prefers-color-scheme: light)"
+    ).matches;
+
+  return prefersLight
+    ? "light"
+    : "dark";
+}
+
+function applyTheme(theme) {
+  const normalized =
+    theme === "light"
+      ? "light"
+      : "dark";
+
+  document.documentElement.setAttribute(
+    "data-theme",
+    normalized
+  );
+
+  if (themeColorMeta) {
+    themeColorMeta.setAttribute(
+      "content",
+      THEME_COLORS[normalized]
+    );
+  }
+}
+
+function setTheme(theme) {
+  applyTheme(theme);
+
+  try {
+    localStorage.setItem(
+      THEME_STORAGE_KEY,
+      theme
+    );
+  } catch (error) {
+    /*
+     * localStorage voi olla estetty;
+     * teema pysyy silti istunnon ajan.
+     */
+  }
+}
+
+function toggleTheme() {
+  const current =
+    document.documentElement.getAttribute(
+      "data-theme"
+    ) === "light"
+      ? "light"
+      : "dark";
+
+  setTheme(
+    current === "light"
+      ? "dark"
+      : "light"
+  );
+}
+
+function initializeTheme() {
+  applyTheme(
+    getPreferredTheme()
+  );
+
+  const toggleButtons =
+    document.querySelectorAll(
+      "[data-theme-toggle]"
+    );
+
+  for (const button of toggleButtons) {
+    button.addEventListener(
+      "click",
+      toggleTheme
+    );
+  }
+}
+
+initializeTheme();
+
+/*
+ * Sovelluksen käynnistys
+ */
+
+async function initialize() {
+  try {
+    db =
+      await openDatabase();
+
+    songs =
+      await getAllSongs();
+
+    await ensurePdfPageCounts();
+
+    renderLibrary();
+    updatePendingImportDisplay();
+    updatePlayPauseButton(false);
+
+    if (
+      "serviceWorker" in
+      navigator
+    ) {
+      navigator.serviceWorker
+        .register("./sw.js")
+        .catch(error => {
+          console.error(
+            "Offline-toiminnon käynnistäminen epäonnistui:",
+            error
+          );
+        });
+    }
+  } catch (error) {
+    console.error(error);
+
+    showToast(
+      "Paikallisen tietokannan avaaminen epäonnistui."
+    );
+  }
+}
+
+initialize();

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Katusoitto">
+  <rect width="512" height="512" fill="#ffb000"/>
+  <g fill="#1a1500">
+    <path d="M196 156 L330 128 V166 L196 194 Z"/>
+    <rect x="196" y="156" width="18" height="180"/>
+    <rect x="312" y="128" width="18" height="180"/>
+    <ellipse cx="176" cy="338" rx="44" ry="33" transform="rotate(-18 176 338)"/>
+    <ellipse cx="292" cy="312" rx="44" ry="33" transform="rotate(-18 292 312)"/>
+  </g>
+</svg>

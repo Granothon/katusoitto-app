@@ -1,0 +1,17 @@
+# Riippuvuudet – ei tarvita ajossa, vain vendor/ palvellaan
+node_modules/
+
+# Mediatiedostot eivät kuulu repoon (usein tekijänoikeuden alaisia)
+*.pdf
+*.mp3
+*.wav
+*.m4a
+*.flac
+
+# Käyttöjärjestelmän roskatiedostot
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Lokit
+npm-debug.log*
