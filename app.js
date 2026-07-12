@@ -30,6 +30,8 @@ let audioContext = null;
 let stretchNode = null;
 let audioDuration = 0;
 let isPlaying = false;
+let audioLoading = false;
+let audioWarmupPromise = null;
 
 let currentTempo = 1;
 
@@ -1578,17 +1580,7 @@ function getAudioTime() {
     : 0;
 }
 
-async function loadAudio(file) {
-  if (stretchNode) {
-    try {
-      stretchNode.disconnect();
-    } catch (error) {
-      /* already disconnected */
-    }
-
-    stretchNode = null;
-  }
-
+function ensureAudioContext() {
   if (!audioContext) {
     const AudioContextClass =
       window.AudioContext ||
@@ -1598,67 +1590,143 @@ async function loadAudio(file) {
       new AudioContextClass();
   }
 
-  const data =
-    await file.arrayBuffer();
+  return audioContext;
+}
 
-  const audioBuffer =
-    await audioContext.decodeAudioData(data);
-
-  audioDuration =
-    audioBuffer.duration;
-
-  const channels = [];
-
-  for (
-    let channel = 0;
-    channel < audioBuffer.numberOfChannels;
-    channel++
-  ) {
-    channels.push(
-      audioBuffer.getChannelData(channel)
-    );
+/*
+ * Compile the AudioWorklet + WASM once, ahead of time, so the
+ * first song does not stall on a dead play button. Memoised;
+ * triggered on the first user interaction.
+ */
+function warmUpAudioEngine() {
+  if (audioWarmupPromise) {
+    return audioWarmupPromise;
   }
 
-  stretchNode =
-    await SignalsmithStretch(
-      audioContext,
-      {
-        outputChannelCount: [
-          audioBuffer.numberOfChannels
-        ]
-      }
+  audioWarmupPromise = (async () => {
+    ensureAudioContext();
+
+    const warmNode =
+      await SignalsmithStretch(audioContext);
+
+    try {
+      warmNode.disconnect();
+    } catch (error) {
+      /* nothing to disconnect */
+    }
+  })().catch(error => {
+    console.warn(
+      "Audio engine warm-up failed:",
+      error
     );
-
-  await stretchNode.addBuffers(channels);
-
-  stretchNode.connect(
-    audioContext.destination
-  );
-
-  stretchNode.schedule({
-    input: 0,
-    rate: currentTempo,
-    semitones: 0,
-    active: false
   });
 
-  stretchNode.setUpdateInterval(
-    0.1,
-    handleAudioProgress
+  return audioWarmupPromise;
+}
+
+function setAudioLoading(loading) {
+  audioLoading = loading;
+
+  playPauseButton.disabled = loading;
+
+  playPauseButton.classList.toggle(
+    "loading",
+    loading
   );
 
-  isPlaying = false;
+  if (loading) {
+    playPauseButton.setAttribute(
+      "aria-busy",
+      "true"
+    );
+  } else {
+    playPauseButton.removeAttribute(
+      "aria-busy"
+    );
+  }
+}
 
-  updatePlayPauseButton(false);
+async function loadAudio(file) {
+  setAudioLoading(true);
 
-  currentTimeElement.textContent =
-    "00:00";
+  try {
+    if (stretchNode) {
+      try {
+        stretchNode.disconnect();
+      } catch (error) {
+        /* already disconnected */
+      }
 
-  audioSeek.value = 0;
-  audioSeek.max = audioDuration || 0;
+      stretchNode = null;
+    }
 
-  durationElement.textContent =
-    formatTime(audioDuration);
+    ensureAudioContext();
+
+    await warmUpAudioEngine();
+
+    const data =
+      await file.arrayBuffer();
+
+    const audioBuffer =
+      await audioContext.decodeAudioData(data);
+
+    audioDuration =
+      audioBuffer.duration;
+
+    const channels = [];
+
+    for (
+      let channel = 0;
+      channel < audioBuffer.numberOfChannels;
+      channel++
+    ) {
+      channels.push(
+        audioBuffer.getChannelData(channel)
+      );
+    }
+
+    stretchNode =
+      await SignalsmithStretch(
+        audioContext,
+        {
+          outputChannelCount: [
+            audioBuffer.numberOfChannels
+          ]
+        }
+      );
+
+    await stretchNode.addBuffers(channels);
+
+    stretchNode.connect(
+      audioContext.destination
+    );
+
+    stretchNode.schedule({
+      input: 0,
+      rate: currentTempo,
+      semitones: 0,
+      active: false
+    });
+
+    stretchNode.setUpdateInterval(
+      0.1,
+      handleAudioProgress
+    );
+
+    isPlaying = false;
+
+    currentTimeElement.textContent =
+      "00:00";
+
+    audioSeek.value = 0;
+    audioSeek.max = audioDuration || 0;
+
+    durationElement.textContent =
+      formatTime(audioDuration);
+  } finally {
+    setAudioLoading(false);
+    updatePlayPauseButton(false);
+  }
 }
 
 function handleAudioProgress() {
@@ -1753,7 +1821,7 @@ async function setTempo(
 }
 
 async function togglePlayback() {
-  if (!currentSong || !stretchNode) {
+  if (!currentSong || !stretchNode || audioLoading) {
     return;
   }
 
@@ -2904,6 +2972,16 @@ window.addEventListener(
       previousPage();
     }
   }
+);
+
+/*
+ * Warm up the audio engine (compile WASM/worklet) on the first
+ * user interaction, so the first song plays without a stall.
+ */
+window.addEventListener(
+  "pointerdown",
+  warmUpAudioEngine,
+  { once: true }
 );
 
 window.addEventListener(
