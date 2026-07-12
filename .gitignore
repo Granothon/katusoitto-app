@@ -1,17 +1,17 @@
-# Riippuvuudet – ei tarvita ajossa, vain vendor/ palvellaan
+# Dependencies – not needed at runtime, only vendor/ is served
 node_modules/
 
-# Mediatiedostot eivät kuulu repoon (usein tekijänoikeuden alaisia)
+# Media files do not belong in the repo (often copyrighted)
 *.pdf
 *.mp3
 *.wav
 *.m4a
 *.flac
 
-# Käyttöjärjestelmän roskatiedostot
+# Operating system junk files
 .DS_Store
 Thumbs.db
 desktop.ini
 
-# Lokit
+# Logs
 npm-debug.log*

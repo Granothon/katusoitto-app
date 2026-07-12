@@ -70,9 +70,9 @@ self.addEventListener(
     }
 
     /*
-     * Käsitellään vain oman originin GET-pyynnöt.
-     * Muut (esim. mahdolliset ulkoiset resurssit)
-     * menevät suoraan verkkoon eikä niitä cachetetä.
+     * Only handle same-origin GET requests. Others
+     * (e.g. any possible external resources) go straight
+     * to the network and are not cached.
      */
     const requestUrl =
       new URL(event.request.url);

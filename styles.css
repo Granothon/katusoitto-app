@@ -1,12 +1,12 @@
 /*
- * Katusoitto – ulkoasu
+ * Katusoitto – styles
  *
- * Kaksi teemaa yhdellä token-joukolla:
- *   :root                    -> tumma (oletus, keikoille illalla)
- *   :root[data-theme="light"] -> kirkas korkeakontrastinen (ulos auringossa)
+ * Two themes from one token set:
+ *   :root                    -> dark (default, for evening gigs)
+ *   :root[data-theme="light"] -> bright high-contrast (outdoors in sunlight)
  *
- * Teemaa vaihdetaan .theme-toggle-napilla; valinta talletetaan
- * localStorageen ja asetetaan documentElementin data-theme-attribuuttiin.
+ * The theme is switched with the .theme-toggle button; the choice is
+ * stored in localStorage and set on documentElement's data-theme attribute.
  */
 
 :root,
@@ -73,7 +73,7 @@
 }
 
 /*
- * Perusta
+ * Base
  */
 
 * {
@@ -134,7 +134,7 @@ h3 {
 }
 
 /*
- * Kirjasto
+ * Library
  */
 
 #libraryView {
@@ -181,7 +181,7 @@ h3 {
 }
 
 /*
- * Teemanappi
+ * Theme button
  */
 
 .theme-toggle {
@@ -206,7 +206,7 @@ h3 {
 }
 
 /*
- * Painikkeet
+ * Buttons
  */
 
 .primary-button,
@@ -270,7 +270,7 @@ h3 {
 }
 
 /*
- * Tiedostojen lisääminen
+ * Adding files
  */
 
 .drop-zone {
@@ -367,7 +367,7 @@ h3 {
 }
 
 /*
- * Osioiden otsikot
+ * Section headings
  */
 
 .section-heading {
@@ -386,7 +386,7 @@ h3 {
 }
 
 /*
- * Kappalekortit
+ * Song cards
  */
 
 .song-grid {
@@ -528,7 +528,7 @@ h3 {
 }
 
 /*
- * Soittotilan yläpalkki
+ * Player top bar
  */
 
 .player-header {
@@ -573,7 +573,7 @@ h3 {
 }
 
 /*
- * PDF-näkymä
+ * PDF view
  */
 
 .pdf-area {
@@ -626,7 +626,7 @@ h3 {
 }
 
 /*
- * Sivunvaihtojen kosketusalueet
+ * Page turn touch areas
  */
 
 .page-touch-area {
@@ -703,7 +703,7 @@ h3 {
 }
 
 /*
- * Automaattisen sivunvaihdon varoitus
+ * Automatic page turn warning
  */
 
 .turn-warning {
@@ -774,7 +774,7 @@ h3 {
 }
 
 /*
- * Taustanauhan soitin
+ * Backing track player
  */
 
 .transport {
@@ -934,7 +934,7 @@ h3 {
 }
 
 /*
- * Sivunvaihtojen asetusikkuna
+ * Page turn settings dialog
  */
 
 dialog {
@@ -1073,7 +1073,7 @@ dialog::backdrop {
 }
 
 /*
- * Ilmoitus
+ * Toast
  */
 
 .toast {
@@ -1107,7 +1107,7 @@ dialog::backdrop {
 }
 
 /*
- * Pienet näytöt
+ * Small screens
  */
 
 @media (max-width: 600px) {
@@ -1131,7 +1131,7 @@ dialog::backdrop {
     padding: 6px;
   }
 
-  /* Kapealla näytöllä tempo omalle rivilleen painikkeiden alle */
+  /* On narrow screens, put tempo on its own row below the buttons */
   .transport-main {
     grid-template-columns: auto;
     justify-items: center;
@@ -1173,7 +1173,7 @@ dialog::backdrop {
 }
 
 /*
- * Liikkeen vähennys
+ * Reduced motion
  */
 
 @media (prefers-reduced-motion: reduce) {

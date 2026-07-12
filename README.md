@@ -1,77 +1,84 @@
 # Katusoitto
 
-Offline-PWA katusoittajalle: jokainen kappale = **PDF-nuotti + MP3-taustanauha**.
-Soittotilassa nuotti näkyy näytöllä, taustanauha soi, ja sivut voivat kääntyä
-**automaattisesti** taustanauhan aikaleimojen mukaan.
+An offline PWA for buskers: each song is a **PDF score + MP3 backing track**.
+In player mode the score is shown on screen, the backing track plays, and the
+pages can turn **automatically** based on timestamps in the backing track.
 
-- **Täysin paikallinen** – ei palvelinta, ei tiliä, ei verkkokutsuja. Kaikki data
-  (nuotit, taustanauhat, sivunvaihdot) tallentuu vain omaan selaimeesi (IndexedDB).
-- **Toimii offline** – service worker tallentaa sovelluksen välimuistiin.
-- **Kaksi teemaa** – tumma (illalle) ja kirkas korkeakontrastinen (ulos auringossa),
-  ☀️/🌙-napilla.
-- **Asennettavissa** kotinäytölle (PWA).
+- **Fully local** – no server, no account, no network requests. All data
+  (scores, backing tracks, page turns) is stored only in your own browser
+  (IndexedDB).
+- **Works offline** – a service worker caches the app.
+- **Two themes** – dark (for evening gigs) and bright high-contrast (outdoors
+  in sunlight), toggled with the ☀️/🌙 button.
+- **Tempo control** – change the playback speed without changing pitch;
+  remembered per song.
+- **Installable** to the home screen (PWA).
 
-## Kansiorakenne
+## Folder structure
 
 ```
-index.html              Sovelluksen runko
-styles.css              Ulkoasu (tumma + kirkas teema)
-app.js                  Sovelluslogiikka (ES-moduuli)
-sw.js                   Service worker (offline-välimuisti)
-manifest.webmanifest    PWA-manifesti
-icon.svg                Sovelluskuvake
-vendor/                 Vendoroitu pdf.js (pdf.js + pdf.worker.js)
+index.html              App shell
+styles.css              Styles (dark + light theme)
+app.js                  App logic (ES module)
+sw.js                   Service worker (offline cache)
+manifest.webmanifest    PWA manifest
+icon.svg                App icon
+vendor/                 Vendored pdf.js (pdf.js + pdf.worker.js)
 ```
 
-`vendor/`-tiedostot ovat kopioita `pdfjs-dist`-paketista (ks. `package.json`).
-`node_modules/` ei kuulu repoon eikä ajoon – vain `vendor/` palvellaan.
+The files in `vendor/` are copies from the `pdfjs-dist` package (see
+`package.json`). `node_modules/` is not part of the repo and is not used at
+runtime – only `vendor/` is served.
 
-## Ajaminen paikallisesti
+## Running locally
 
-Sovellus tarvitsee HTTP(S)-palvelimen (service worker ja ES-moduulit eivät toimi
-`file://`-protokollalla). Kevyt paikallinen palvelin, esim:
+The app needs an HTTP(S) server (service workers and ES modules do not work over
+the `file://` protocol). A lightweight local server, e.g.:
 
 ```bash
 npx serve .
-# tai
+# or
 python -m http.server 8000
 ```
 
-Avaa sitten selaimessa annettu osoite (esim. http://localhost:8000).
+Then open the shown address in a browser (e.g. http://localhost:8000).
 
-## Julkaisu GitHub Pagesiin
+## Deploying to GitHub Pages
 
-1. Push tämä repo GitHubiin.
-2. **Settings → Pages** → Source: *Deploy from a branch* → Branch: `main`, kansio `/ (root)`.
-3. Sovellus löytyy osoitteesta `https://<käyttäjä>.github.io/<repo>/`.
+1. Push this repo to GitHub.
+2. **Settings → Pages** → Source: *Deploy from a branch* → Branch: `main`,
+   folder `/ (root)`.
+3. The app will be available at `https://<user>.github.io/<repo>/`.
 
-Kaikki polut ovat suhteellisia, joten sovellus toimii project-sivun alipolussa
-sellaisenaan. Pages tarjoaa HTTPS:n, jota PWA ja service worker vaativat.
+All paths are relative, so the app works under the project subpath as-is. Pages
+provides HTTPS, which the PWA and service worker require.
 
-> **Huom:** älä committaa tekijänoikeudellisia nuotteja tai taustanauhoja – repo on
-> julkinen. `.gitignore` estää `*.pdf`- ja `*.mp3`-tiedostojen tallentumisen vahingossa.
+> **Note:** don't commit copyrighted scores or backing tracks – the repo is
+> public. `.gitignore` prevents `*.pdf` and `*.mp3` files from being committed
+> by accident.
 
-## pdf.js:n päivitys
+## Updating pdf.js
 
-`vendor/`-tiedostot eivät päivity automaattisesti. Kun `pdfjs-dist`-versio vaihtuu:
+The `vendor/` files do not update automatically. When the `pdfjs-dist` version
+changes:
 
 ```bash
-npm install pdfjs-dist@uusin
+npm install pdfjs-dist@latest
 cp node_modules/pdfjs-dist/build/pdf.mjs        vendor/pdf.js
 cp node_modules/pdfjs-dist/build/pdf.worker.mjs vendor/pdf.worker.js
 ```
 
-Nosta tämän jälkeen `sw.js`:n `CACHE_NAME`-versiota, jotta uusi versio otetaan käyttöön.
+After that, bump the `CACHE_NAME` version in `sw.js` so the new version is used.
 
-## Tietoturva
+## Security
 
-Sovellus avaa mielivaltaisia PDF-tiedostoja, joten pdf.js on kovennettu
-(`isEvalSupported`, `enableScripting`, `enableXfa` pois) ja `index.html`:ssä on tiukka
-Content Security Policy. Kaikki data pysyy laitteella; mitään ei lähetetä ulos.
+The app opens arbitrary PDF files, so pdf.js is hardened (`isEvalSupported`,
+`enableScripting`, `enableXfa` disabled) and `index.html` has a strict Content
+Security Policy. All data stays on the device; nothing is sent out.
 
-## Lisenssi
+## License
 
-Tämä projekti on lisensoitu **MIT**-lisenssillä – ks. [LICENSE](LICENSE).
+This project is licensed under the **MIT** license – see [LICENSE](LICENSE).
 
-Sovellus sisältää Mozillan **pdf.js**-kirjaston (`vendor/`), joka on lisensoitu
-Apache License 2.0:lla – ks. [vendor/LICENSE](vendor/LICENSE).
+The app bundles Mozilla's **pdf.js** library (`vendor/`), which is licensed
+under the Apache License 2.0 – see [vendor/LICENSE](vendor/LICENSE).

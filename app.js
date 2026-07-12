@@ -29,9 +29,9 @@ let rendering = false;
 let pendingRenderPage = null;
 
 /*
- * PDF:n zoomaus.
+ * PDF zoom.
  *
- * Arvo 1 tarkoittaa Fit page -tilaa.
+ * A value of 1 means Fit page mode.
  */
 let pdfZoom = 1;
 
@@ -48,7 +48,7 @@ let pendingImport = {
 };
 
 /*
- * Kirjaston elementit
+ * Library elements
  */
 
 const libraryView =
@@ -67,7 +67,7 @@ const songCount =
   document.querySelector("#songCount");
 
 /*
- * Tiedostojen lisäys
+ * Adding files
  */
 
 const dropZone =
@@ -95,7 +95,7 @@ const chooseFilesButton =
   document.querySelector("#chooseFilesButton");
 
 /*
- * Soittotilan elementit
+ * Player elements
  */
 
 const backButton =
@@ -120,7 +120,7 @@ const nextPageButton =
   document.querySelector("#nextPageButton");
 
 /*
- * Taustanauha
+ * Backing track
  */
 
 const audioPlayer =
@@ -148,7 +148,7 @@ const tempoValue =
   document.querySelector("#tempoValue");
 
 /*
- * Sivunvaihtojen asetukset
+ * Page turn settings
  */
 
 const settingsButton =
@@ -179,7 +179,7 @@ const pageTurnList =
   document.querySelector("#pageTurnList");
 
 /*
- * Sivunvaihdon varoitus
+ * Page turn warning
  */
 
 const turnWarning =
@@ -323,7 +323,7 @@ async function removeSong(id) {
 }
 
 /*
- * PDF:n sivumäärä
+ * PDF page count
  */
 
 async function readPdfPageCount(file) {
@@ -414,7 +414,7 @@ async function ensurePdfPageCounts() {
 }
 
 /*
- * Tiedostojen lisääminen
+ * Adding files
  */
 
 async function addFiles(fileList) {
@@ -719,7 +719,7 @@ function readAudioMetadata(file) {
 }
 
 /*
- * Kirjasto
+ * Library
  */
 
 function renderLibrary() {
@@ -859,7 +859,7 @@ async function deleteSong(song) {
 }
 
 /*
- * Toistopainikkeen tila
+ * Play button state
  */
 
 function updatePlayPauseButton(
@@ -891,7 +891,7 @@ function updatePlayPauseButton(
 }
 
 /*
- * Toiston resetointi
+ * Reset playback
  */
 
 function resetCurrentPlayback() {
@@ -945,7 +945,7 @@ function resetCurrentPlayback() {
 }
 
 /*
- * PDF-zoomauksen resetointi
+ * Reset PDF zoom
  */
 
 function resetPdfZoomState() {
@@ -972,7 +972,7 @@ function resetPdfZoomState() {
 }
 
 /*
- * Kappaleen avaaminen
+ * Opening a song
  */
 
 async function openSong(id) {
@@ -1098,7 +1098,7 @@ async function loadPdf(file) {
 }
 
 /*
- * PDF:n näyttäminen
+ * Rendering the PDF
  */
 
 async function renderPage(pageNumber) {
@@ -1247,7 +1247,7 @@ async function renderPage(pageNumber) {
 }
 
 /*
- * PDF:n zoomaus
+ * PDF zoom
  */
 
 function clampPdfZoom(value) {
@@ -1410,7 +1410,7 @@ function getTouchDistance(
 }
 
 /*
- * Sivujen kontrollit
+ * Page controls
  */
 
 function updatePageControls() {
@@ -1466,7 +1466,7 @@ function updatePageIndicator() {
 }
 
 /*
- * Manuaalinen sivunvaihto
+ * Manual page turn
  */
 
 async function nextPage() {
@@ -1553,7 +1553,7 @@ async function recordPageTurn(
 }
 
 /*
- * Taustanauha
+ * Backing track
  */
 
 function loadAudio(file) {
@@ -1615,8 +1615,8 @@ function updateTempoDisplay() {
 
 function applyTempo() {
   /*
-   * Säilytä sävelkorkeus tempoa muutettaessa
-   * (ei "chipmunk"-efektiä).
+   * Preserve pitch when changing tempo
+   * (no "chipmunk" effect).
    */
   audioPlayer.preservesPitch = true;
   audioPlayer.mozPreservesPitch = true;
@@ -1708,7 +1708,7 @@ async function openNextSong() {
 }
 
 /*
- * Automaattiset sivunvaihdot
+ * Automatic page turns
  */
 
 function processAutomaticPageTurns() {
@@ -1754,9 +1754,9 @@ function processAutomaticPageTurns() {
     currentAudioTime;
 
   /*
-   * Vaihtohetki on äänen omassa aikajanassa, joten se
-   * osuu oikeaan musiikilliseen kohtaan temposta
-   * riippumatta – ei korjausta tähän.
+   * The turn point is in the audio's own timeline, so it
+   * lands at the right musical spot regardless of the
+   * tempo – no correction needed here.
    */
   if (mediaSecondsUntilTurn <= 0) {
     hideTurnWarning();
@@ -1769,9 +1769,9 @@ function processAutomaticPageTurns() {
   }
 
   /*
-   * Varoituksen ennakkoaika lasketaan tosielämän
-   * sekunteina: nopeampi tempo → vähemmän reaaliaikaa
-   * vaihtoon, joten varoitus tulee oikeassa hetkessä.
+   * The warning lead time is computed in real-world
+   * seconds: faster tempo -> less real time until the
+   * turn, so the warning appears at the right moment.
    */
   const playbackRate =
     audioPlayer.playbackRate || 1;
@@ -1850,7 +1850,7 @@ function hideTurnWarning() {
 }
 
 /*
- * Sivunvaihtojen asetukset
+ * Page turn settings
  */
 
 function openSettings() {
@@ -1924,7 +1924,7 @@ function updateSongInMemory() {
 }
 
 /*
- * Sivunvaihtojen opetustila
+ * Page turn teaching mode
  */
 
 async function startTraining() {
@@ -2148,7 +2148,7 @@ async function clearPageTurns() {
 }
 
 /*
- * Paluu kirjastoon
+ * Back to the library
  */
 
 function closePlayer() {
@@ -2200,7 +2200,7 @@ function closePlayer() {
 }
 
 /*
- * Apufunktiot
+ * Helpers
  */
 
 function formatTime(seconds) {
@@ -2267,7 +2267,7 @@ function showToast(message) {
 }
 
 /*
- * Tiedostojen valinta
+ * File selection
  */
 
 chooseFilesButton.addEventListener(
@@ -2337,7 +2337,7 @@ dropZone.addEventListener(
 );
 
 /*
- * Soittimen painikkeet
+ * Player buttons
  */
 
 backButton.addEventListener(
@@ -2371,7 +2371,7 @@ nextPageButton.addEventListener(
 );
 
 /*
- * Tempo-painikkeet
+ * Tempo buttons
  */
 
 for (const button of document.querySelectorAll(
@@ -2396,7 +2396,7 @@ tempoValue.addEventListener(
 );
 
 /*
- * Sivunvaihtojen asetukset
+ * Page turn settings
  */
 
 settingsButton.addEventListener(
@@ -2430,7 +2430,7 @@ clearPageTurnsButton.addEventListener(
 );
 
 /*
- * Taustanauhan tapahtumat
+ * Backing track events
  */
 
 audioPlayer.addEventListener(
@@ -2525,7 +2525,7 @@ audioSeek.addEventListener(
 );
 
 /*
- * Pinch-zoomauksen aloitus
+ * Pinch zoom start
  */
 
 pdfArea.addEventListener(
@@ -2563,7 +2563,7 @@ pdfArea.addEventListener(
 );
 
 /*
- * Pinch-zoomauksen esikatselu
+ * Pinch zoom preview
  */
 
 pdfArea.addEventListener(
@@ -2608,7 +2608,7 @@ pdfArea.addEventListener(
 );
 
 /*
- * Pinch-zoomauksen lopetus
+ * Pinch zoom end
  */
 
 pdfArea.addEventListener(
@@ -2651,7 +2651,7 @@ pdfArea.addEventListener(
 );
 
 /*
- * Ctrl + hiiren rulla
+ * Ctrl + mouse wheel
  */
 
 pdfArea.addEventListener(
@@ -2682,7 +2682,7 @@ pdfArea.addEventListener(
 );
 
 /*
- * Kaksoisklikkaus tietokoneella
+ * Double-click on desktop
  */
 
 pdfCanvas.addEventListener(
@@ -2706,7 +2706,7 @@ pdfCanvas.addEventListener(
 );
 
 /*
- * Kaksoisnapautus tabletilla
+ * Double-tap on tablet
  */
 
 pdfCanvas.addEventListener(
@@ -2753,7 +2753,7 @@ pdfCanvas.addEventListener(
 );
 
 /*
- * Näytön koon muuttuminen
+ * Window resize
  */
 
 let resizeTimeout;
@@ -2777,7 +2777,7 @@ window.addEventListener(
 );
 
 /*
- * Näppäimistön sivunvaihto
+ * Keyboard page turn
  */
 
 window.addEventListener(
@@ -2829,7 +2829,7 @@ window.addEventListener(
 );
 
 /*
- * Teema (tumma / kirkas)
+ * Theme (dark / light)
  */
 
 const THEME_STORAGE_KEY =
@@ -2902,8 +2902,8 @@ function setTheme(theme) {
     );
   } catch (error) {
     /*
-     * localStorage voi olla estetty;
-     * teema pysyy silti istunnon ajan.
+     * localStorage may be blocked;
+     * the theme still persists for the session.
      */
   }
 }
@@ -2944,7 +2944,7 @@ function initializeTheme() {
 initializeTheme();
 
 /*
- * Sovelluksen käynnistys
+ * App startup
  */
 
 async function initialize() {
