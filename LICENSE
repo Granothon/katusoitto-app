@@ -25,3 +25,7 @@ SOFTWARE.
 
 This project bundles Mozilla's pdf.js (files in vendor/), which is licensed
 under the Apache License 2.0. See vendor/LICENSE for its full license text.
+
+This project also bundles Signalsmith Stretch (vendor/SignalsmithStretch.mjs),
+from the "signalsmith-stretch" npm package by Signalsmith Audio, which is
+licensed under the MIT license.

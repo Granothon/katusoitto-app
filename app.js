@@ -1,4 +1,5 @@
 import * as pdfjsLib from "./vendor/pdf.js";
+import SignalsmithStretch from "./vendor/SignalsmithStretch.mjs";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc =
   "./vendor/pdf.worker.js";
@@ -20,7 +21,15 @@ let currentSong = null;
 let currentPdf = null;
 let currentPage = 1;
 
-let audioObjectUrl = null;
+/*
+ * Web Audio playback engine (Signalsmith Stretch).
+ * Replaces the <audio> element so tempo can change with
+ * high quality and no pitch shift.
+ */
+let audioContext = null;
+let stretchNode = null;
+let audioDuration = 0;
+let isPlaying = false;
 
 let currentTempo = 1;
 
@@ -122,9 +131,6 @@ const nextPageButton =
 /*
  * Backing track
  */
-
-const audioPlayer =
-  document.querySelector("#audioPlayer");
 
 const playPauseButton =
   document.querySelector("#playPauseButton");
@@ -895,30 +901,30 @@ function updatePlayPauseButton(
  */
 
 function resetCurrentPlayback() {
-  audioPlayer.pause();
+  if (stretchNode) {
+    try {
+      stretchNode.schedule({ active: false });
+    } catch (error) {
+      console.warn(
+        "Could not stop playback:",
+        error
+      );
+    }
 
-  try {
-    audioPlayer.currentTime = 0;
-  } catch (error) {
-    console.warn(
-      "Could not reset playback position:",
-      error
-    );
+    try {
+      stretchNode.disconnect();
+    } catch (error) {
+      console.warn(
+        "Could not disconnect audio node:",
+        error
+      );
+    }
+
+    stretchNode = null;
   }
 
-  audioPlayer.removeAttribute(
-    "src"
-  );
-
-  audioPlayer.load();
-
-  if (audioObjectUrl) {
-    URL.revokeObjectURL(
-      audioObjectUrl
-    );
-
-    audioObjectUrl = null;
-  }
+  isPlaying = false;
+  audioDuration = 0;
 
   updatePlayPauseButton(false);
 
@@ -1037,10 +1043,6 @@ async function openSong(id) {
     "hidden"
   );
 
-  loadAudio(
-    currentSong.audio.file
-  );
-
   currentTempo =
     clampTempo(
       Number(
@@ -1048,7 +1050,22 @@ async function openSong(id) {
       ) || 1
     );
 
-  applyTempo();
+  updateTempoDisplay();
+
+  try {
+    await loadAudio(
+      currentSong.audio.file
+    );
+  } catch (error) {
+    console.error(
+      "Could not load the backing track:",
+      error
+    );
+
+    showToast(
+      "Could not load the backing track."
+    );
+  }
 
   try {
     await loadPdf(
@@ -1510,8 +1527,7 @@ async function recordPageTurn(
 ) {
   const time =
     Number(
-      audioPlayer.currentTime
-        .toFixed(2)
+      getAudioTime().toFixed(2)
     );
 
   currentSong.pageTurns =
@@ -1556,22 +1572,82 @@ async function recordPageTurn(
  * Backing track
  */
 
-function loadAudio(file) {
-  if (audioObjectUrl) {
-    URL.revokeObjectURL(
-      audioObjectUrl
-    );
+function getAudioTime() {
+  return stretchNode
+    ? stretchNode.inputTime || 0
+    : 0;
+}
 
-    audioObjectUrl = null;
+async function loadAudio(file) {
+  if (stretchNode) {
+    try {
+      stretchNode.disconnect();
+    } catch (error) {
+      /* already disconnected */
+    }
+
+    stretchNode = null;
   }
 
-  audioObjectUrl =
-    URL.createObjectURL(file);
+  if (!audioContext) {
+    const AudioContextClass =
+      window.AudioContext ||
+      window.webkitAudioContext;
 
-  audioPlayer.src =
-    audioObjectUrl;
+    audioContext =
+      new AudioContextClass();
+  }
 
-  audioPlayer.load();
+  const data =
+    await file.arrayBuffer();
+
+  const audioBuffer =
+    await audioContext.decodeAudioData(data);
+
+  audioDuration =
+    audioBuffer.duration;
+
+  const channels = [];
+
+  for (
+    let channel = 0;
+    channel < audioBuffer.numberOfChannels;
+    channel++
+  ) {
+    channels.push(
+      audioBuffer.getChannelData(channel)
+    );
+  }
+
+  stretchNode =
+    await SignalsmithStretch(
+      audioContext,
+      {
+        outputChannelCount: [
+          audioBuffer.numberOfChannels
+        ]
+      }
+    );
+
+  await stretchNode.addBuffers(channels);
+
+  stretchNode.connect(
+    audioContext.destination
+  );
+
+  stretchNode.schedule({
+    input: 0,
+    rate: currentTempo,
+    semitones: 0,
+    active: false
+  });
+
+  stretchNode.setUpdateInterval(
+    0.1,
+    handleAudioProgress
+  );
+
+  isPlaying = false;
 
   updatePlayPauseButton(false);
 
@@ -1579,11 +1655,38 @@ function loadAudio(file) {
     "00:00";
 
   audioSeek.value = 0;
+  audioSeek.max = audioDuration || 0;
 
   durationElement.textContent =
-    formatTime(
-      currentSong.audio.duration
-    );
+    formatTime(audioDuration);
+}
+
+function handleAudioProgress() {
+  if (!stretchNode) {
+    return;
+  }
+
+  const time = getAudioTime();
+
+  audioSeek.value = time;
+
+  currentTimeElement.textContent =
+    formatTime(time);
+
+  processAutomaticPageTurns();
+
+  if (
+    isPlaying &&
+    audioDuration > 0 &&
+    time >= audioDuration - 0.08
+  ) {
+    stretchNode.schedule({ active: false });
+
+    isPlaying = false;
+
+    updatePlayPauseButton(false);
+    hideTurnWarning();
+  }
 }
 
 /*
@@ -1615,14 +1718,15 @@ function updateTempoDisplay() {
 
 function applyTempo() {
   /*
-   * Preserve pitch when changing tempo
-   * (no "chipmunk" effect).
+   * High-quality time-stretch with pitch preserved
+   * (semitones: 0). Applied live, no re-render.
    */
-  audioPlayer.preservesPitch = true;
-  audioPlayer.mozPreservesPitch = true;
-  audioPlayer.webkitPreservesPitch = true;
-
-  audioPlayer.playbackRate = currentTempo;
+  if (stretchNode) {
+    stretchNode.schedule({
+      rate: currentTempo,
+      semitones: 0
+    });
+  }
 
   updateTempoDisplay();
 }
@@ -1648,33 +1752,66 @@ async function setTempo(
   }
 }
 
-function togglePlayback() {
-  if (!currentSong) {
+async function togglePlayback() {
+  if (!currentSong || !stretchNode) {
     return;
   }
 
-  if (audioPlayer.paused) {
-    audioPlayer
-      .play()
-      .catch(error => {
-        console.error(error);
+  try {
+    if (audioContext.state === "suspended") {
+      await audioContext.resume();
+    }
 
-        showToast(
-          "Could not start playback."
-        );
+    if (isPlaying) {
+      stretchNode.schedule({ active: false });
+
+      isPlaying = false;
+
+      updatePlayPauseButton(false);
+      hideTurnWarning();
+    } else {
+      if (
+        audioDuration > 0 &&
+        getAudioTime() >= audioDuration - 0.08
+      ) {
+        stretchNode.schedule({ input: 0 });
+      }
+
+      stretchNode.schedule({
+        active: true,
+        rate: currentTempo,
+        semitones: 0
       });
-  } else {
-    audioPlayer.pause();
+
+      isPlaying = true;
+
+      updatePlayPauseButton(true);
+    }
+  } catch (error) {
+    console.error(error);
+
+    showToast(
+      "Could not start playback."
+    );
   }
 }
 
 async function restartSong() {
-  if (!currentSong) {
+  if (!currentSong || !stretchNode) {
     return;
   }
 
-  audioPlayer.pause();
-  audioPlayer.currentTime = 0;
+  stretchNode.schedule({
+    active: false,
+    input: 0
+  });
+
+  isPlaying = false;
+
+  audioSeek.value = 0;
+
+  currentTimeElement.textContent =
+    "00:00";
 
   await renderPage(1);
 
@@ -1717,7 +1854,7 @@ function processAutomaticPageTurns() {
     !currentSong.settings
       .autoTurnEnabled ||
     trainingMode ||
-    audioPlayer.paused
+    !isPlaying
   ) {
     hideTurnWarning();
     return;
@@ -1732,7 +1869,7 @@ function processAutomaticPageTurns() {
   }
 
   const currentAudioTime =
-    audioPlayer.currentTime;
+    getAudioTime();
 
   const nextTurn =
     currentSong.pageTurns.find(
@@ -1774,7 +1911,7 @@ function processAutomaticPageTurns() {
    * turn, so the warning appears at the right moment.
    */
   const playbackRate =
-    audioPlayer.playbackRate || 1;
+    currentTempo || 1;
 
   const secondsUntilTurn =
     mediaSecondsUntilTurn /
@@ -2430,68 +2567,23 @@ clearPageTurnsButton.addEventListener(
 );
 
 /*
- * Backing track events
+ * Backing track seek
  */
-
-audioPlayer.addEventListener(
-  "play",
-  () => {
-    updatePlayPauseButton(true);
-  }
-);
-
-audioPlayer.addEventListener(
-  "pause",
-  () => {
-    updatePlayPauseButton(false);
-  }
-);
-
-audioPlayer.addEventListener(
-  "loadedmetadata",
-  () => {
-    audioSeek.max =
-      audioPlayer.duration || 0;
-
-    durationElement.textContent =
-      formatTime(
-        audioPlayer.duration
-      );
-
-    applyTempo();
-  }
-);
-
-audioPlayer.addEventListener(
-  "timeupdate",
-  () => {
-    audioSeek.value =
-      audioPlayer.currentTime;
-
-    currentTimeElement.textContent =
-      formatTime(
-        audioPlayer.currentTime
-      );
-
-    processAutomaticPageTurns();
-  }
-);
-
-audioPlayer.addEventListener(
-  "ended",
-  () => {
-    updatePlayPauseButton(false);
-    hideTurnWarning();
-  }
-);
 
 audioSeek.addEventListener(
   "input",
   () => {
-    audioPlayer.currentTime =
-      Number(
-        audioSeek.value
-      );
+    if (!stretchNode) {
+      return;
+    }
+
+    const time =
+      Number(audioSeek.value);
+
+    stretchNode.schedule({ input: time });
+
+    currentTimeElement.textContent =
+      formatTime(time);
 
     if (
       currentSong &&
@@ -2503,10 +2595,7 @@ audioSeek.addEventListener(
         const turn of
         currentSong.pageTurns
       ) {
-        if (
-          turn.time <=
-          audioPlayer.currentTime
-        ) {
+        if (turn.time <= time) {
           correctPage =
             turn.toPage;
         }
@@ -2820,10 +2909,8 @@ window.addEventListener(
 window.addEventListener(
   "beforeunload",
   () => {
-    if (audioObjectUrl) {
-      URL.revokeObjectURL(
-        audioObjectUrl
-      );
+    if (audioContext) {
+      audioContext.close();
     }
   }
 );

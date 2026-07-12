@@ -82,3 +82,8 @@ This project is licensed under the **MIT** license – see [LICENSE](LICENSE).
 
 The app bundles Mozilla's **pdf.js** library (`vendor/`), which is licensed
 under the Apache License 2.0 – see [vendor/LICENSE](vendor/LICENSE).
+
+It also bundles **Signalsmith Stretch** (`vendor/SignalsmithStretch.mjs`, from
+the [`signalsmith-stretch`](https://www.npmjs.com/package/signalsmith-stretch)
+package by Signalsmith Audio), used for high-quality tempo changes, which is
+licensed under the MIT license.
