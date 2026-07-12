@@ -1435,79 +1435,99 @@ async function renderPage(pageNumber) {
     const pixelRatio =
       Math.min(window.devicePixelRatio || 1, 2);
 
-    const pageDisplayWidth =
-      Math.floor(baseViewport.width * displayScale);
-
-    const pageDisplayHeight =
-      Math.floor(baseViewport.height * displayScale);
-
-    const pageRenderWidth =
-      Math.floor(
-        baseViewport.width * displayScale * pixelRatio
-      );
-
-    const pageRenderHeight =
-      Math.floor(
-        baseViewport.height * displayScale * pixelRatio
-      );
+    const renderScale = displayScale * pixelRatio;
 
     const gapRender =
       rightPage ? Math.round(gap * pixelRatio) : 0;
 
-    const gapDisplay = rightPage ? gap : 0;
+    const leftViewport =
+      leftPage.getViewport({ scale: renderScale });
+
+    const rightViewport =
+      rightPage
+        ? rightPage.getViewport({ scale: renderScale })
+        : null;
+
+    const leftWidth = Math.floor(leftViewport.width);
+    const leftHeight = Math.floor(leftViewport.height);
+
+    const rightWidth =
+      rightViewport ? Math.floor(rightViewport.width) : 0;
+
+    const rightHeight =
+      rightViewport ? Math.floor(rightViewport.height) : 0;
+
+    const totalWidth =
+      leftWidth +
+      (rightPage ? gapRender + rightWidth : 0);
+
+    const totalHeight =
+      Math.max(leftHeight, rightHeight);
 
     const context =
       pdfCanvas.getContext("2d", { alpha: false });
 
-    pdfCanvas.width =
-      rightPage
-        ? pageRenderWidth * 2 + gapRender
-        : pageRenderWidth;
-
-    pdfCanvas.height = pageRenderHeight;
+    pdfCanvas.width = totalWidth;
+    pdfCanvas.height = totalHeight;
 
     pdfCanvas.style.width =
-      `${
-        rightPage
-          ? pageDisplayWidth * 2 + gapDisplay
-          : pageDisplayWidth
-      }px`;
+      `${Math.floor(totalWidth / pixelRatio)}px`;
 
     pdfCanvas.style.height =
-      `${pageDisplayHeight}px`;
+      `${Math.floor(totalHeight / pixelRatio)}px`;
 
     pdfCanvas.style.transform = "none";
 
     context.fillStyle = "#ffffff";
-    context.fillRect(
-      0,
-      0,
-      pdfCanvas.width,
-      pdfCanvas.height
-    );
+    context.fillRect(0, 0, totalWidth, totalHeight);
+
+    /*
+     * Render each page to its own offscreen canvas, then
+     * composite. Rendering two pages into one context is
+     * not reliable in pdf.js, so keep them separate.
+     */
+    const leftCanvas =
+      document.createElement("canvas");
+
+    leftCanvas.width = leftWidth;
+    leftCanvas.height = leftHeight;
+
+    const leftContext =
+      leftCanvas.getContext("2d", { alpha: false });
+
+    leftContext.fillStyle = "#ffffff";
+    leftContext.fillRect(0, 0, leftWidth, leftHeight);
 
     await leftPage.render({
-      canvasContext: context,
-      viewport: leftPage.getViewport({
-        scale: displayScale * pixelRatio
-      })
+      canvasContext: leftContext,
+      viewport: leftViewport
     }).promise;
 
+    context.drawImage(leftCanvas, 0, 0);
+
     if (rightPage) {
+      const rightCanvas =
+        document.createElement("canvas");
+
+      rightCanvas.width = rightWidth;
+      rightCanvas.height = rightHeight;
+
+      const rightContext =
+        rightCanvas.getContext("2d", { alpha: false });
+
+      rightContext.fillStyle = "#ffffff";
+      rightContext.fillRect(0, 0, rightWidth, rightHeight);
+
       await rightPage.render({
-        canvasContext: context,
-        viewport: rightPage.getViewport({
-          scale: displayScale * pixelRatio
-        }),
-        transform: [
-          1,
-          0,
-          0,
-          1,
-          pageRenderWidth + gapRender,
-          0
-        ]
+        canvasContext: rightContext,
+        viewport: rightViewport
       }).promise;
+
+      context.drawImage(
+        rightCanvas,
+        leftWidth + gapRender,
+        0
+      );
     }
 
     updatePdfZoomLayout();
