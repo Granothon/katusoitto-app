@@ -10,73 +10,80 @@
  */
 
 /*
- * Palette: sleek minimalist — neutral graphite (dark) / clean paper
- * (light), monochrome-forward with a single blue accent used only for
- * the primary action and live states. Variable names are kept so
- * components recolour automatically.
+ * Palette: "old radio" — warm walnut cabinet + amber dial glow (dark,
+ * night dial) / cream faceplate + copper (light, daylight). Condensed
+ * dial typography. Variable names are kept so components recolour.
  */
 
 :root,
 :root[data-theme="dark"] {
   color-scheme: dark;
 
-  --bg: #0d0e10;
-  --bg-elev: #131417;
-  --surface: #16171a;
-  --surface-2: #1e2024;
+  --bg: #241a12;
+  --bg-elev: #2e2318;
+  --surface: #33271a;
+  --surface-2: #402f1e;
 
-  --border: #26282d;
-  --border-strong: #35383f;
+  --border: #4a3925;
+  --border-strong: #614a2e;
 
-  --text: #f2f3f5;
-  --muted: #9297a1;
+  --text: #f2e4c9;
+  --muted: #b39a76;
 
-  --accent: #5b8dff;
-  --accent-strong: #8fb2ff;
-  --accent-ink: #ffffff;
-  --accent-wash: #141c2b;
+  --accent: #f0a92b;
+  --accent-strong: #ffc24d;
+  --accent-ink: #241703;
+  --accent-wash: #3a2913;
 
-  --danger: #ef4a5a;
+  --danger: #d0552f;
   --danger-ink: #ffffff;
-  --ok: #3ecf8e;
+  --ok: #9aab5f;
 
-  --stage: #17181b;
-  --warning-bg: rgb(15 16 18 / 92%);
+  --stage: #1b130c;
+  --warning-bg: rgb(30 22 13 / 94%);
 
-  --shadow-1: 0 1px 2px rgb(0 0 0 / 40%), 0 4px 12px rgb(0 0 0 / 28%);
-  --shadow-2: 0 16px 44px rgb(0 0 0 / 52%);
-  --overlay: rgb(0 0 0 / 60%);
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 45%), 0 4px 12px rgb(0 0 0 / 34%);
+  --shadow-2: 0 16px 44px rgb(0 0 0 / 58%);
+  --overlay: rgb(14 9 3 / 66%);
+
+  --font-display:
+    "Bahnschrift",
+    "DIN Alternate",
+    "Oswald",
+    "Arial Narrow",
+    system-ui,
+    sans-serif;
 }
 
 :root[data-theme="light"] {
   color-scheme: light;
 
-  --bg: #f4f5f7;
-  --bg-elev: #ffffff;
-  --surface: #ffffff;
-  --surface-2: #eef0f3;
+  --bg: #e6d9bc;
+  --bg-elev: #f2e8cf;
+  --surface: #f5eed7;
+  --surface-2: #e3d4b1;
 
-  --border: #e4e6ea;
-  --border-strong: #cbcfd6;
+  --border: #ccb992;
+  --border-strong: #a98f61;
 
-  --text: #14161a;
-  --muted: #616774;
+  --text: #3a2c18;
+  --muted: #7c6845;
 
-  --accent: #2f6bed;
-  --accent-strong: #1f52c9;
-  --accent-ink: #ffffff;
-  --accent-wash: #eaf1fe;
+  --accent: #c1701a;
+  --accent-strong: #964f0e;
+  --accent-ink: #fff4e0;
+  --accent-wash: #efe1c2;
 
-  --danger: #d63a48;
+  --danger: #b23d1f;
   --danger-ink: #ffffff;
-  --ok: #17a06a;
+  --ok: #5f7a3c;
 
-  --stage: #e6e8ec;
-  --warning-bg: rgb(255 255 255 / 96%);
+  --stage: #c8bd9c;
+  --warning-bg: rgb(245 238 215 / 96%);
 
-  --shadow-1: 0 1px 2px rgb(16 18 22 / 7%), 0 4px 12px rgb(16 18 22 / 7%);
-  --shadow-2: 0 16px 44px rgb(16 18 22 / 18%);
-  --overlay: rgb(16 18 22 / 40%);
+  --shadow-1: 0 1px 2px rgb(70 50 20 / 12%), 0 4px 12px rgb(70 50 20 / 10%);
+  --shadow-2: 0 16px 44px rgb(70 50 20 / 22%);
+  --overlay: rgb(50 36 16 / 44%);
 }
 
 /*
@@ -123,7 +130,8 @@ button {
 h1,
 h2,
 h3 {
-  letter-spacing: -0.015em;
+  font-family: var(--font-display);
+  letter-spacing: 0.01em;
 }
 
 :focus-visible {
@@ -173,10 +181,11 @@ h3 {
 
 .main-header h1 {
   margin: 0;
-  font-size: clamp(1.65rem, 5vw, 2.2rem);
+  font-size: clamp(1.9rem, 6vw, 2.7rem);
   font-weight: 700;
-  letter-spacing: -0.025em;
-  line-height: 1.05;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  line-height: 1;
 }
 
 .main-header p,
@@ -193,25 +202,90 @@ h3 {
  * Theme button
  */
 
+/* Theme toggle as a physical flip switch (day up / night down) */
 .theme-toggle {
-  width: 48px;
-  min-width: 48px;
+  position: relative;
+
+  width: 40px;
+  min-width: 40px;
+  height: 58px;
   padding: 0;
-  font-size: 1.3rem;
-  line-height: 1;
   flex: none;
+
+  border-radius: 11px;
+  border: 1px solid var(--border-strong);
+
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface-2) 78%, #ffffff 8%),
+      var(--surface)
+    );
+
+  box-shadow:
+    inset 0 2px 5px rgb(0 0 0 / 38%),
+    inset 0 -1px 0 rgb(255 255 255 / 6%),
+    0 1px 0 rgb(255 255 255 / 5%);
+}
+
+/* recessed channel behind the lever */
+.theme-toggle::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 9px;
+  bottom: 9px;
+  width: 6px;
+  transform: translateX(-50%);
+
+  border-radius: 4px;
+  background: rgb(0 0 0 / 40%);
+  box-shadow: inset 0 0 3px rgb(0 0 0 / 55%);
+}
+
+/* the lever/knob carries the current-mode icon */
+.theme-toggle .to-light,
+.theme-toggle .to-dark {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  height: 26px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  border-radius: 8px;
+
+  background:
+    linear-gradient(180deg, #efe8d6 0%, #cbbd9f 55%, #a5977a 100%);
+  color: #2a1f0f;
+
+  box-shadow:
+    0 3px 4px rgb(0 0 0 / 45%),
+    inset 0 1px 0 rgb(255 255 255 / 65%),
+    inset 0 -2px 3px rgb(0 0 0 / 22%);
+
+  font-size: 0.9rem;
+}
+
+/* dark (default): night — lever down, moon shown */
+.theme-toggle .to-light {
+  display: none;
 }
 
 .theme-toggle .to-dark {
+  top: 28px;
+}
+
+/* light: day — lever up, sun shown */
+:root[data-theme="light"] .theme-toggle .to-dark {
   display: none;
 }
 
 :root[data-theme="light"] .theme-toggle .to-light {
-  display: none;
-}
-
-:root[data-theme="light"] .theme-toggle .to-dark {
-  display: inline;
+  display: flex;
+  top: 4px;
 }
 
 /*
@@ -392,6 +466,46 @@ h3 {
 .section-heading > span {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+}
+
+.library-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.library-tools #songCount {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  margin-right: 4px;
+}
+
+.tool-button {
+  min-height: 40px;
+  padding: 8px 14px;
+
+  border: 1px solid var(--border);
+  border-radius: 10px;
+
+  background: var(--surface-2);
+  color: var(--text);
+
+  font-weight: 650;
+
+  transition:
+    border-color 130ms ease,
+    filter 130ms ease;
+}
+
+.tool-button:hover {
+  border-color: var(--border-strong);
+  filter: brightness(1.05);
+}
+
+.tool-button:active {
+  transform: translateY(1px);
 }
 
 /*
@@ -922,11 +1036,20 @@ h3 {
   height: 76px;
   border-radius: 50%;
 
-  background: var(--accent);
+  background:
+    radial-gradient(
+      circle at 50% 34%,
+      var(--accent-strong),
+      var(--accent) 68%
+    );
   color: var(--accent-ink);
+  border: 1px solid color-mix(in srgb, var(--accent-ink) 25%, var(--accent));
 
   box-shadow:
-    0 6px 20px color-mix(in srgb, var(--accent) 45%, transparent);
+    0 0 0 4px color-mix(in srgb, var(--accent) 18%, transparent),
+    0 6px 24px color-mix(in srgb, var(--accent) 55%, transparent),
+    inset 0 2px 3px rgb(255 255 255 / 40%),
+    inset 0 -4px 7px rgb(0 0 0 / 28%);
 
   font-size: 1.9rem;
 }
@@ -1163,9 +1286,9 @@ dialog::backdrop {
   }
 
   .player-header .theme-toggle {
-    width: 44px;
-    min-width: 44px;
-    font-size: 1.2rem;
+    width: 36px;
+    min-width: 36px;
+    height: 52px;
   }
 
   .pdf-area {

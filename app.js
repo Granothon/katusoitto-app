@@ -1,5 +1,5 @@
 import * as pdfjsLib from "./vendor/pdf.js";
-import SignalsmithStretch from "./vendor/SignalsmithStretch.mjs";
+import SignalsmithStretch from "./vendor/SignalsmithStretch.js";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc =
   "./vendor/pdf.worker.js";
@@ -82,6 +82,15 @@ const emptyState =
 
 const songCount =
   document.querySelector("#songCount");
+
+const exportButton =
+  document.querySelector("#exportButton");
+
+const importButton =
+  document.querySelector("#importButton");
+
+const importInput =
+  document.querySelector("#importInput");
 
 /*
  * Adding files
@@ -735,6 +744,208 @@ function readAudioMetadata(file) {
 /*
  * Library
  */
+
+/*
+ * Persistent storage + library backup (export / import as JSON)
+ */
+
+async function requestPersistentStorage() {
+  try {
+    if (
+      navigator.storage &&
+      navigator.storage.persist
+    ) {
+      await navigator.storage.persist();
+    }
+  } catch (error) {
+    console.warn(
+      "Persistent storage request failed:",
+      error
+    );
+  }
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      resolve(reader.result);
+    };
+
+    reader.onerror = () => {
+      reject(reader.error);
+    };
+
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function dataUrlToBlob(dataUrl) {
+  const response = await fetch(dataUrl);
+  return response.blob();
+}
+
+async function exportLibrary() {
+  if (songs.length === 0) {
+    showToast("Library is empty.");
+    return;
+  }
+
+  showToast("Preparing backup…");
+
+  try {
+    const exportedSongs = [];
+
+    for (const song of songs) {
+      exportedSongs.push({
+        id: song.id,
+        title: song.title,
+        createdAt: song.createdAt,
+        pdf: {
+          name: song.pdf.name,
+          pageCount: song.pdf.pageCount,
+          data: await blobToDataUrl(song.pdf.file)
+        },
+        audio: {
+          name: song.audio.name,
+          duration: song.audio.duration,
+          data: await blobToDataUrl(song.audio.file)
+        },
+        settings: song.settings,
+        pageTurns: song.pageTurns
+      });
+    }
+
+    const payload = JSON.stringify({
+      app: "katusoitto",
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      songs: exportedSongs
+    });
+
+    const blob = new Blob([payload], {
+      type: "application/json"
+    });
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download =
+      `katusoitto-library-${
+        new Date().toISOString().slice(0, 10)
+      }.json`;
+
+    link.click();
+
+    URL.revokeObjectURL(url);
+
+    showToast(
+      `Exported ${songs.length} ${
+        songs.length === 1 ? "song" : "songs"
+      }.`
+    );
+  } catch (error) {
+    console.error(error);
+    showToast("Could not export the library.");
+  }
+}
+
+async function importLibrary(file) {
+  showToast("Importing…");
+
+  try {
+    const text = await file.text();
+    const parsed = JSON.parse(text);
+
+    if (
+      !parsed ||
+      !Array.isArray(parsed.songs)
+    ) {
+      showToast(
+        "Not a valid Katusoitto backup."
+      );
+      return;
+    }
+
+    let imported = 0;
+
+    for (const entry of parsed.songs) {
+      if (
+        !entry.pdf?.data ||
+        !entry.audio?.data
+      ) {
+        continue;
+      }
+
+      const pdfBlob =
+        await dataUrlToBlob(entry.pdf.data);
+
+      const audioBlob =
+        await dataUrlToBlob(entry.audio.data);
+
+      const song = {
+        id:
+          entry.id ||
+          crypto.randomUUID(),
+        title:
+          entry.title ||
+          "Untitled song",
+        createdAt:
+          entry.createdAt ||
+          new Date().toISOString(),
+        pdf: {
+          name:
+            entry.pdf.name || "score.pdf",
+          file: new File(
+            [pdfBlob],
+            entry.pdf.name || "score.pdf",
+            { type: "application/pdf" }
+          ),
+          pageCount:
+            entry.pdf.pageCount || 1
+        },
+        audio: {
+          name:
+            entry.audio.name || "track.mp3",
+          file: new File(
+            [audioBlob],
+            entry.audio.name || "track.mp3",
+            { type: "audio/mpeg" }
+          ),
+          duration:
+            entry.audio.duration || 0
+        },
+        settings:
+          entry.settings || {
+            autoTurnEnabled: true,
+            warningSeconds: 5,
+            playbackRate: 1
+          },
+        pageTurns:
+          Array.isArray(entry.pageTurns)
+            ? entry.pageTurns
+            : []
+      };
+
+      await saveSong(song);
+      imported++;
+    }
+
+    songs = await getAllSongs();
+    renderLibrary();
+
+    showToast(
+      `Imported ${imported} ${
+        imported === 1 ? "song" : "songs"
+      }.`
+    );
+  } catch (error) {
+    console.error(error);
+    showToast("Could not import the backup.");
+  }
+}
 
 function renderLibrary() {
   songGrid.innerHTML = "";
@@ -2605,6 +2816,32 @@ fileInput.addEventListener(
   }
 );
 
+exportButton.addEventListener(
+  "click",
+  exportLibrary
+);
+
+importButton.addEventListener(
+  "click",
+  () => {
+    importInput.click();
+  }
+);
+
+importInput.addEventListener(
+  "change",
+  async event => {
+    const file =
+      event.target.files[0];
+
+    if (file) {
+      await importLibrary(file);
+    }
+
+    importInput.value = "";
+  }
+);
+
 /*
  * Drag and drop
  */
@@ -3122,8 +3359,8 @@ const themeColorMeta =
   document.querySelector("#themeColorMeta");
 
 const THEME_COLORS = {
-  dark: "#0d0e10",
-  light: "#f4f5f7"
+  dark: "#241a12",
+  light: "#e6d9bc"
 };
 
 function getPreferredTheme() {
@@ -3232,6 +3469,8 @@ initializeTheme();
 
 async function initialize() {
   try {
+    await requestPersistentStorage();
+
     db =
       await openDatabase();
 

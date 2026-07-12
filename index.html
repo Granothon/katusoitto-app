@@ -20,7 +20,7 @@
   <meta
     id="themeColorMeta"
     name="theme-color"
-    content="#0d0e10"
+    content="#241a12"
   >
 
   <meta
@@ -129,8 +129,36 @@
       <section>
         <div class="section-heading">
           <h2>Library</h2>
-          <span id="songCount">0 songs</span>
+
+          <div class="library-tools">
+            <span id="songCount">0 songs</span>
+
+            <button
+              id="importButton"
+              class="tool-button"
+              type="button"
+              title="Import a library backup (.json)"
+            >
+              Import
+            </button>
+
+            <button
+              id="exportButton"
+              class="tool-button"
+              type="button"
+              title="Export the library as a backup (.json)"
+            >
+              Export
+            </button>
+          </div>
         </div>
+
+        <input
+          id="importInput"
+          type="file"
+          accept=".json,application/json"
+          hidden
+        >
 
         <div
           id="songGrid"

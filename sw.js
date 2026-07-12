@@ -1,5 +1,5 @@
 const CACHE_NAME =
-  "katusoitto-app-v19";
+  "katusoitto-app-v21";
 
 const APP_FILES = [
   "./",
@@ -10,7 +10,7 @@ const APP_FILES = [
   "./icon.svg",
   "./vendor/pdf.js",
   "./vendor/pdf.worker.js",
-  "./vendor/SignalsmithStretch.mjs"
+  "./vendor/SignalsmithStretch.js"
 ];
 
 self.addEventListener(
