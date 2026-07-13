@@ -24,15 +24,7 @@ const PDF_COMPAT_OPTIONS = {
   isImageDecoderSupported:
     typeof ImageDecoder !== "undefined" && !IS_APPLE_WEBKIT,
   isOffscreenCanvasSupported:
-    typeof OffscreenCanvas !== "undefined" && !IS_APPLE_WEBKIT,
-  /*
-   * iPad/iPhone Safari sometimes fails to apply pdf.js's embedded
-   * @font-face fonts when painting text onto canvas, so some sheets
-   * render in a wrong fallback font. Drawing glyph outlines directly
-   * bypasses the browser font engine and always matches the PDF. Keep
-   * the faster, crisper font-face path on other browsers.
-   */
-  disableFontFace: IS_APPLE_WEBKIT
+    typeof OffscreenCanvas !== "undefined" && !IS_APPLE_WEBKIT
 };
 
 const DB_NAME = "katusoitto-db";
