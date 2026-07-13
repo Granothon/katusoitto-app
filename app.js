@@ -122,6 +122,10 @@ let pinchStartZoom = 1;
 let pinchPreviewZoom = 1;
 let pinchInProgress = false;
 
+let swipeTracking = false;
+let swipeStartX = 0;
+let swipeStartY = 0;
+
 let lastPdfTapTime = 0;
 
 let pendingImport = {
@@ -2862,9 +2866,89 @@ pdfArea.addEventListener(
   "touchcancel",
   () => {
     pinchInProgress = false;
+    swipeTracking = false;
 
     pdfCanvas.style.transform =
       "none";
+  }
+);
+
+/*
+ * Swipe left/right to turn pages (tablet). Only tracked when the page
+ * is not zoomed in — while zoomed, a one-finger drag pans the page,
+ * so we leave that to native scrolling.
+ */
+const SWIPE_MIN_DISTANCE = 60;
+
+pdfArea.addEventListener(
+  "touchstart",
+  event => {
+    if (
+      event.touches.length !== 1 ||
+      pinchInProgress ||
+      !currentPdf ||
+      pdfZoom > 1.01
+    ) {
+      swipeTracking = false;
+      return;
+    }
+
+    swipeTracking = true;
+    swipeStartX = event.touches[0].clientX;
+    swipeStartY = event.touches[0].clientY;
+  },
+  {
+    passive: true
+  }
+);
+
+pdfArea.addEventListener(
+  "touchend",
+  event => {
+    if (
+      !swipeTracking ||
+      pinchInProgress ||
+      event.touches.length > 0
+    ) {
+      return;
+    }
+
+    swipeTracking = false;
+
+    const touch =
+      event.changedTouches[0];
+
+    if (!touch) {
+      return;
+    }
+
+    const dx =
+      touch.clientX - swipeStartX;
+
+    const dy =
+      touch.clientY - swipeStartY;
+
+    if (
+      Math.abs(dx) < SWIPE_MIN_DISTANCE ||
+      Math.abs(dx) < Math.abs(dy) * 1.5
+    ) {
+      return;
+    }
+
+    /*
+     * Swallow the click the edge tap-zones would otherwise fire, so a
+     * swipe does not also count as a tap.
+     */
+    event.preventDefault();
+
+    if (dx < 0) {
+      nextPage();
+    } else {
+      previousPage();
+    }
+  },
+  {
+    passive: false
   }
 );
 
