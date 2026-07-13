@@ -1003,6 +1003,25 @@ h3 {
   color: var(--accent-strong);
 }
 
+.pitch-control {
+  grid-column: 3;
+  justify-self: end;
+
+  display: inline-flex;
+  align-items: center;
+
+  padding: 4px;
+  border-radius: 999px;
+
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.pitch-value {
+  min-width: 64px;
+  padding: 6px 12px;
+}
+
 .media-symbol-button {
   display: inline-flex;
   align-items: center;
@@ -1312,6 +1331,12 @@ dialog::backdrop {
     grid-column: 1;
     justify-self: center;
     order: 2;
+  }
+
+  .pitch-control {
+    grid-column: 1;
+    justify-self: center;
+    order: 3;
   }
 
   .transport-button.media-symbol-button {

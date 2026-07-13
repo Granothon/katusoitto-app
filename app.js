@@ -37,6 +37,17 @@ const MAX_PDF_ZOOM = 4;
 const MIN_TEMPO = 0.5;
 const MAX_TEMPO = 1.5;
 
+/*
+ * Baroque tuning: A = 415 Hz is one semitone below concert A = 440 Hz.
+ * Signalsmith shifts pitch without touching tempo, so playing the
+ * backing track down this many semitones lets 415-tuned instruments
+ * play along. 12 * log2(415/440) ≈ -1.017 semitones (lands on 415 Hz).
+ */
+const CONCERT_PITCH_HZ = 440;
+const BAROQUE_PITCH_HZ = 415;
+const BAROQUE_SEMITONES =
+  12 * Math.log2(BAROQUE_PITCH_HZ / CONCERT_PITCH_HZ);
+
 let db;
 let songs = [];
 
@@ -59,6 +70,13 @@ let audioWarmupPromise = null;
 let currentTempo = 1;
 
 /*
+ * Pitch shift in semitones (0 = A440, BAROQUE_SEMITONES = A415).
+ * Non-zero forces the stretch engine, since the direct path cannot
+ * shift pitch.
+ */
+let pitchSemitones = 0;
+
+/*
  * At 100 % tempo we skip the CPU-heavy time-stretch engine and
  * play the decoded buffer straight through a plain source node.
  * Default playback then stays smooth even on weak hardware (e.g.
@@ -73,6 +91,15 @@ let directStartContextTime = 0;
 let directStartOffset = 0;
 let playbackPosition = 0;
 let directTimer = null;
+
+/*
+ * Which engine is actually playing right now: "direct", "stretch" or
+ * null. Tracked separately from isDirectMode() (which reflects the
+ * desired engine for the current tempo/pitch) so that changing tempo
+ * or pitch mid-playback stops the engine that is really running, not
+ * the one the new settings would use.
+ */
+let activeEngine = null;
 
 let trainingMode = false;
 let rendering = false;
@@ -208,6 +235,9 @@ const durationElement =
 
 const tempoValue =
   document.querySelector("#tempoValue");
+
+const pitchToggle =
+  document.querySelector("#pitchToggle");
 
 /*
  * Page turn settings
@@ -595,7 +625,8 @@ async function createSongFromPendingFiles() {
       settings: {
         autoTurnEnabled: true,
         warningSeconds: 5,
-        playbackRate: 1
+        playbackRate: 1,
+        baroquePitch: false
       },
 
       pageTurns: []
@@ -961,7 +992,8 @@ async function importLibrary(file) {
           entry.settings || {
             autoTurnEnabled: true,
             warningSeconds: 5,
-            playbackRate: 1
+            playbackRate: 1,
+            baroquePitch: false
           },
         pageTurns:
           Array.isArray(entry.pageTurns)
@@ -1186,6 +1218,7 @@ function resetCurrentPlayback() {
   }
 
   audioBuffer = null;
+  activeEngine = null;
   isPlaying = false;
   playbackPosition = 0;
   audioDuration = 0;
@@ -1314,7 +1347,13 @@ async function openSong(id) {
       ) || 1
     );
 
+  pitchSemitones =
+    currentSong.settings?.baroquePitch
+      ? BAROQUE_SEMITONES
+      : 0;
+
   updateTempoDisplay();
+  updatePitchDisplay();
 
   try {
     await loadAudio(
@@ -1995,7 +2034,10 @@ async function recordPageTurn(
  */
 
 function isDirectMode() {
-  return Math.abs(currentTempo - 1) < 0.001;
+  return (
+    Math.abs(currentTempo - 1) < 0.001 &&
+    Math.abs(pitchSemitones) < 0.001
+  );
 }
 
 /*
@@ -2023,7 +2065,7 @@ function getAudioTime() {
     return playbackPosition;
   }
 
-  if (isDirectMode()) {
+  if (activeEngine === "direct") {
     return Math.min(
       audioDuration || 0,
       directStartOffset +
@@ -2031,9 +2073,11 @@ function getAudioTime() {
     );
   }
 
-  return stretchNode
-    ? stretchNode.inputTime || 0
-    : playbackPosition;
+  if (activeEngine === "stretch" && stretchNode) {
+    return stretchNode.inputTime || 0;
+  }
+
+  return playbackPosition;
 }
 
 /*
@@ -2112,6 +2156,7 @@ function startPlaybackFrom(offset) {
   if (isDirectMode()) {
     startDirectSource(offset);
     startDirectTimer();
+    activeEngine = "direct";
     isPlaying = true;
   } else if (stretchNode) {
     try {
@@ -2129,9 +2174,10 @@ function startPlaybackFrom(offset) {
     stretchNode.schedule({
       active: true,
       rate: currentTempo,
-      semitones: 0
+      semitones: pitchSemitones
     });
 
+    activeEngine = "stretch";
     isPlaying = true;
   }
 }
@@ -2139,10 +2185,10 @@ function startPlaybackFrom(offset) {
 function pausePlayback() {
   playbackPosition = getAudioTime();
 
-  if (isDirectMode()) {
+  if (activeEngine === "direct") {
     stopDirectSource();
     stopDirectTimer();
-  } else if (stretchNode) {
+  } else if (activeEngine === "stretch" && stretchNode) {
     try {
       stretchNode.schedule({ active: false });
       stretchNode.disconnect();
@@ -2151,6 +2197,7 @@ function pausePlayback() {
     }
   }
 
+  activeEngine = null;
   isPlaying = false;
 }
 
@@ -2247,6 +2294,7 @@ async function loadAudio(file) {
     }
 
     isPlaying = false;
+    activeEngine = null;
     playbackPosition = 0;
     audioBuffer = null;
 
@@ -2369,37 +2417,71 @@ function updateTempoDisplay() {
   );
 }
 
+/*
+ * Changing tempo or pitch may switch playback between the direct and
+ * stretch engines (e.g. crossing 100 % tempo, or turning pitch shift
+ * on/off). If a track is playing, restart it on the right engine from
+ * the same position. Call after the tempo/pitch values are updated.
+ */
+function reconfigurePlayback() {
+  if (!isPlaying) {
+    return;
+  }
+
+  pausePlayback();
+  startPlaybackFrom(playbackPosition);
+  updatePlayPauseButton(isPlaying);
+}
+
 async function setTempo(
   newTempo,
   save = true
 ) {
-  /*
-   * Changing the tempo may cross the 100 % boundary and so switch
-   * playback between the direct and stretch engines. If a track is
-   * playing, stop the old engine and restart the new one from the
-   * same position (pitch preserved, semitones: 0).
-   */
-  const wasPlaying = isPlaying;
-
-  if (wasPlaying) {
-    pausePlayback();
-  }
-
   currentTempo =
     clampTempo(
       Math.round(newTempo * 100) / 100
     );
 
-  if (wasPlaying) {
-    startPlaybackFrom(playbackPosition);
-    updatePlayPauseButton(isPlaying);
-  }
-
+  reconfigurePlayback();
   updateTempoDisplay();
 
   if (save && currentSong) {
     currentSong.settings.playbackRate =
       currentTempo;
+
+    await saveSong(currentSong);
+
+    updateSongInMemory();
+  }
+}
+
+function updatePitchDisplay() {
+  const baroque =
+    Math.abs(pitchSemitones) > 0.001;
+
+  pitchToggle.textContent =
+    baroque ? "415 Hz" : "440 Hz";
+
+  pitchToggle.classList.toggle("modified", baroque);
+
+  pitchToggle.setAttribute(
+    "aria-pressed",
+    baroque ? "true" : "false"
+  );
+}
+
+async function setBaroquePitch(
+  baroque,
+  save = true
+) {
+  pitchSemitones =
+    baroque ? BAROQUE_SEMITONES : 0;
+
+  reconfigurePlayback();
+  updatePitchDisplay();
+
+  if (save && currentSong) {
+    currentSong.settings.baroquePitch = baroque;
 
     await saveSong(currentSong);
 
@@ -3207,6 +3289,15 @@ tempoValue.addEventListener(
   }
 );
 
+pitchToggle.addEventListener(
+  "click",
+  () => {
+    setBaroquePitch(
+      Math.abs(pitchSemitones) < 0.001
+    );
+  }
+);
+
 /*
  * Page turn settings
  */
@@ -3258,9 +3349,9 @@ audioSeek.addEventListener(
     playbackPosition = time;
 
     if (isPlaying) {
-      if (isDirectMode()) {
+      if (activeEngine === "direct") {
         startDirectSource(time);
-      } else if (stretchNode) {
+      } else if (activeEngine === "stretch" && stretchNode) {
         stretchNode.schedule({ input: time });
       }
     }
