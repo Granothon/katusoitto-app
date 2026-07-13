@@ -35,6 +35,22 @@ let audioWarmupPromise = null;
 
 let currentTempo = 1;
 
+/*
+ * At 100 % tempo we skip the CPU-heavy time-stretch engine and
+ * play the decoded buffer straight through a plain source node.
+ * Default playback then stays smooth even on weak hardware (e.g.
+ * an older iPad) where the real-time stretcher underruns and
+ * stutters or stalls. The stretch engine is only engaged when the
+ * tempo is actually changed. `playbackPosition` is the canonical
+ * play head (seconds) whenever nothing is actively playing.
+ */
+let audioBuffer = null;
+let directSource = null;
+let directStartContextTime = 0;
+let directStartOffset = 0;
+let playbackPosition = 0;
+let directTimer = null;
+
 let trainingMode = false;
 let rendering = false;
 let pendingRenderPage = null;
@@ -362,7 +378,10 @@ async function readPdfPageCount(file) {
           data,
           isEvalSupported: false,
           enableScripting: false,
-          enableXfa: false
+          enableXfa: false,
+          /* See loadPdf: keep iPad Safari off the broken image paths. */
+          isOffscreenCanvasSupported: false,
+          isImageDecoderSupported: false
         })
         .promise;
 
@@ -1120,6 +1139,9 @@ function updatePlayPauseButton(
  */
 
 function resetCurrentPlayback() {
+  stopDirectSource();
+  stopDirectTimer();
+
   if (stretchNode) {
     try {
       stretchNode.schedule({ active: false });
@@ -1142,7 +1164,9 @@ function resetCurrentPlayback() {
     stretchNode = null;
   }
 
+  audioBuffer = null;
   isPlaying = false;
+  playbackPosition = 0;
   audioDuration = 0;
 
   updatePlayPauseButton(false);
@@ -1326,7 +1350,17 @@ async function loadPdf(file) {
         data,
         isEvalSupported: false,
         enableScripting: false,
-        enableXfa: false
+        enableXfa: false,
+        /*
+         * iPad Safari has no ImageDecoder API and a flaky
+         * OffscreenCanvas, but pdf.js assumes both exist in a
+         * browser and then throws while rasterising image-based
+         * (scanned) sheets. Force the classic decode path so
+         * pages render everywhere; it is only marginally slower
+         * for a single-song PDF.
+         */
+        isOffscreenCanvasSupported: false,
+        isImageDecoderSupported: false
       })
       .promise;
 
@@ -1432,8 +1466,40 @@ async function renderPage(pageNumber) {
 
     const displayScale = fitScale * pdfZoom;
 
-    const pixelRatio =
+    /*
+     * Browsers cap the size of a canvas backing store. iPad
+     * Safari is the strictest: a canvas may not exceed
+     * 16,777,216 total pixels (nor a per-side limit), and when
+     * it does getContext() yields a blank/null context so the
+     * page fails to render. That is easy to hit on a zoomed
+     * two-page spread. Keep the backing store within a safe
+     * budget by trimming the pixel ratio; the CSS display size
+     * divides by the same ratio, so the page keeps its size and
+     * zoom level and only loses some sharpness at extreme zoom.
+     */
+    const MAX_CANVAS_AREA = 16777216;
+    const MAX_CANVAS_SIDE = 8192;
+
+    const basePixelRatio =
       Math.min(window.devicePixelRatio || 1, 2);
+
+    const estWidth =
+      baseViewport.width *
+        displayScale *
+        (twoUp ? 2 : 1) *
+        basePixelRatio +
+      (twoUp ? gap * basePixelRatio : 0);
+
+    const estHeight =
+      baseViewport.height * displayScale * basePixelRatio;
+
+    const budgetScale = Math.min(
+      1,
+      MAX_CANVAS_SIDE / Math.max(estWidth, estHeight),
+      Math.sqrt(MAX_CANVAS_AREA / (estWidth * estHeight))
+    );
+
+    const pixelRatio = basePixelRatio * budgetScale;
 
     const renderScale = displayScale * pixelRatio;
 
@@ -1539,7 +1605,9 @@ async function renderPage(pageNumber) {
     );
 
     showToast(
-      "Could not display the sheet page."
+      "Could not display the sheet page: " +
+        (error?.message || error),
+      6000
     );
   } finally {
     rendering = false;
@@ -1914,10 +1982,173 @@ async function recordPageTurn(
  * Backing track
  */
 
+function isDirectMode() {
+  return Math.abs(currentTempo - 1) < 0.001;
+}
+
+/*
+ * Safari exposes little about the hardware, so treat Apple mobile
+ * and low-core touch tablets as constrained: they cannot run the
+ * full-quality real-time stretch smoothly, so use the engine's
+ * lighter preset there. Desktops keep the full-quality engine.
+ */
+function prefersLightStretchEngine() {
+  const ua = navigator.userAgent || "";
+
+  const isAppleMobile =
+    /iPad|iPhone|iPod/.test(ua) ||
+    (navigator.platform === "MacIntel" &&
+      navigator.maxTouchPoints > 1);
+
+  const cores = navigator.hardwareConcurrency || 0;
+  const isTouch = navigator.maxTouchPoints > 0;
+
+  return isAppleMobile || (isTouch && cores > 0 && cores <= 4);
+}
+
 function getAudioTime() {
+  if (!isPlaying) {
+    return playbackPosition;
+  }
+
+  if (isDirectMode()) {
+    return Math.min(
+      audioDuration || 0,
+      directStartOffset +
+        (audioContext.currentTime - directStartContextTime)
+    );
+  }
+
   return stretchNode
     ? stretchNode.inputTime || 0
-    : 0;
+    : playbackPosition;
+}
+
+/*
+ * Direct (non-stretched) playback via a plain AudioBufferSource.
+ * A source node cannot be paused/resumed, so pausing stops it and
+ * playing recreates it at the stored offset.
+ */
+function startDirectSource(offset) {
+  stopDirectSource();
+
+  const source =
+    audioContext.createBufferSource();
+
+  source.buffer = audioBuffer;
+
+  source.connect(
+    audioContext.destination
+  );
+
+  source.onended = () => {
+    if (directSource === source && isPlaying) {
+      finishPlayback();
+    }
+  };
+
+  source.start(0, offset);
+
+  directSource = source;
+  directStartContextTime = audioContext.currentTime;
+  directStartOffset = offset;
+}
+
+function stopDirectSource() {
+  if (!directSource) {
+    return;
+  }
+
+  directSource.onended = null;
+
+  try {
+    directSource.stop();
+  } catch (error) {
+    /* already stopped */
+  }
+
+  try {
+    directSource.disconnect();
+  } catch (error) {
+    /* already disconnected */
+  }
+
+  directSource = null;
+}
+
+/*
+ * A source node has no progress callback, so drive the UI and
+ * page turns from a timer while playing directly.
+ */
+function startDirectTimer() {
+  stopDirectTimer();
+
+  directTimer =
+    setInterval(handleAudioProgress, 100);
+}
+
+function stopDirectTimer() {
+  if (directTimer) {
+    clearInterval(directTimer);
+    directTimer = null;
+  }
+}
+
+function startPlaybackFrom(offset) {
+  playbackPosition = offset;
+
+  if (isDirectMode()) {
+    startDirectSource(offset);
+    startDirectTimer();
+    isPlaying = true;
+  } else if (stretchNode) {
+    try {
+      stretchNode.disconnect();
+    } catch (error) {
+      /* was not connected */
+    }
+
+    stretchNode.connect(
+      audioContext.destination
+    );
+
+    stretchNode.schedule({ input: offset });
+
+    stretchNode.schedule({
+      active: true,
+      rate: currentTempo,
+      semitones: 0
+    });
+
+    isPlaying = true;
+  }
+}
+
+function pausePlayback() {
+  playbackPosition = getAudioTime();
+
+  if (isDirectMode()) {
+    stopDirectSource();
+    stopDirectTimer();
+  } else if (stretchNode) {
+    try {
+      stretchNode.schedule({ active: false });
+      stretchNode.disconnect();
+    } catch (error) {
+      /* already stopped */
+    }
+  }
+
+  isPlaying = false;
+}
+
+function finishPlayback() {
+  pausePlayback();
+
+  playbackPosition = audioDuration || 0;
+
+  updatePlayPauseButton(false);
+  hideTurnWarning();
 }
 
 function ensureAudioContext() {
@@ -1990,6 +2221,9 @@ async function loadAudio(file) {
   setAudioLoading(true);
 
   try {
+    stopDirectSource();
+    stopDirectTimer();
+
     if (stretchNode) {
       try {
         stretchNode.disconnect();
@@ -2000,6 +2234,10 @@ async function loadAudio(file) {
       stretchNode = null;
     }
 
+    isPlaying = false;
+    playbackPosition = 0;
+    audioBuffer = null;
+
     ensureAudioContext();
 
     await warmUpAudioEngine();
@@ -2007,7 +2245,7 @@ async function loadAudio(file) {
     const data =
       await file.arrayBuffer();
 
-    const audioBuffer =
+    audioBuffer =
       await audioContext.decodeAudioData(data);
 
     audioDuration =
@@ -2035,25 +2273,26 @@ async function loadAudio(file) {
         }
       );
 
+    /*
+     * Lighter preset on constrained devices so a tempo change
+     * does not overwhelm the audio thread. Set before the audio
+     * is loaded, since it resets the engine.
+     */
+    if (prefersLightStretchEngine()) {
+      stretchNode.configure({ preset: "cheaper" });
+    }
+
     await stretchNode.addBuffers(channels);
-
-    stretchNode.connect(
-      audioContext.destination
-    );
-
-    stretchNode.schedule({
-      input: 0,
-      rate: currentTempo,
-      semitones: 0,
-      active: false
-    });
 
     stretchNode.setUpdateInterval(
       0.1,
       handleAudioProgress
     );
 
-    isPlaying = false;
+    /*
+     * The stretch node stays disconnected (and therefore idle,
+     * consuming no CPU) until a non-100 % tempo is played.
+     */
 
     currentTimeElement.textContent =
       "00:00";
@@ -2070,7 +2309,7 @@ async function loadAudio(file) {
 }
 
 function handleAudioProgress() {
-  if (!stretchNode) {
+  if (!isPlaying) {
     return;
   }
 
@@ -2084,16 +2323,10 @@ function handleAudioProgress() {
   processAutomaticPageTurns();
 
   if (
-    isPlaying &&
     audioDuration > 0 &&
     time >= audioDuration - 0.08
   ) {
-    stretchNode.schedule({ active: false });
-
-    isPlaying = false;
-
-    updatePlayPauseButton(false);
-    hideTurnWarning();
+    finishPlayback();
   }
 }
 
@@ -2124,31 +2357,33 @@ function updateTempoDisplay() {
   );
 }
 
-function applyTempo() {
-  /*
-   * High-quality time-stretch with pitch preserved
-   * (semitones: 0). Applied live, no re-render.
-   */
-  if (stretchNode) {
-    stretchNode.schedule({
-      rate: currentTempo,
-      semitones: 0
-    });
-  }
-
-  updateTempoDisplay();
-}
-
 async function setTempo(
   newTempo,
   save = true
 ) {
+  /*
+   * Changing the tempo may cross the 100 % boundary and so switch
+   * playback between the direct and stretch engines. If a track is
+   * playing, stop the old engine and restart the new one from the
+   * same position (pitch preserved, semitones: 0).
+   */
+  const wasPlaying = isPlaying;
+
+  if (wasPlaying) {
+    pausePlayback();
+  }
+
   currentTempo =
     clampTempo(
       Math.round(newTempo * 100) / 100
     );
 
-  applyTempo();
+  if (wasPlaying) {
+    startPlaybackFrom(playbackPosition);
+    updatePlayPauseButton(isPlaying);
+  }
+
+  updateTempoDisplay();
 
   if (save && currentSong) {
     currentSong.settings.playbackRate =
@@ -2161,7 +2396,7 @@ async function setTempo(
 }
 
 async function togglePlayback() {
-  if (!currentSong || !stretchNode || audioLoading) {
+  if (!currentSong || !audioBuffer || audioLoading) {
     return;
   }
 
@@ -2171,29 +2406,23 @@ async function togglePlayback() {
     }
 
     if (isPlaying) {
-      stretchNode.schedule({ active: false });
-
-      isPlaying = false;
+      pausePlayback();
 
       updatePlayPauseButton(false);
       hideTurnWarning();
     } else {
+      let offset = playbackPosition;
+
       if (
         audioDuration > 0 &&
-        getAudioTime() >= audioDuration - 0.08
+        offset >= audioDuration - 0.08
       ) {
-        stretchNode.schedule({ input: 0 });
+        offset = 0;
       }
 
-      stretchNode.schedule({
-        active: true,
-        rate: currentTempo,
-        semitones: 0
-      });
+      startPlaybackFrom(offset);
 
-      isPlaying = true;
-
-      updatePlayPauseButton(true);
+      updatePlayPauseButton(isPlaying);
     }
   } catch (error) {
     console.error(error);
@@ -2205,16 +2434,13 @@ async function togglePlayback() {
 }
 
 async function restartSong() {
-  if (!currentSong || !stretchNode) {
+  if (!currentSong || !audioBuffer) {
     return;
   }
 
-  stretchNode.schedule({
-    active: false,
-    input: 0
-  });
+  pausePlayback();
 
-  isPlaying = false;
+  playbackPosition = 0;
 
   audioSeek.value = 0;
 
@@ -2794,7 +3020,7 @@ function escapeHtml(value) {
   return div.innerHTML;
 }
 
-function showToast(message) {
+function showToast(message, duration = 2400) {
   toast.textContent =
     message;
 
@@ -2811,7 +3037,7 @@ function showToast(message) {
       toast.classList.add(
         "hidden"
       );
-    }, 2400);
+    }, duration);
 }
 
 /*
@@ -3010,14 +3236,22 @@ clearPageTurnsButton.addEventListener(
 audioSeek.addEventListener(
   "input",
   () => {
-    if (!stretchNode) {
+    if (!audioBuffer) {
       return;
     }
 
     const time =
       Number(audioSeek.value);
 
-    stretchNode.schedule({ input: time });
+    playbackPosition = time;
+
+    if (isPlaying) {
+      if (isDirectMode()) {
+        startDirectSource(time);
+      } else if (stretchNode) {
+        stretchNode.schedule({ input: time });
+      }
+    }
 
     currentTimeElement.textContent =
       formatTime(time);
