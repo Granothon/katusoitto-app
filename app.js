@@ -4,6 +4,29 @@ import SignalsmithStretch from "./vendor/SignalsmithStretch.js";
 pdfjsLib.GlobalWorkerOptions.workerSrc =
   "./vendor/pdf.worker.js";
 
+/*
+ * Apple WebKit (iPad/iPhone Safari, and iPadOS reporting as Mac):
+ * the WebCodecs ImageDecoder API is absent and OffscreenCanvas is
+ * unreliable on older iPads, which broke pdf.js rasterisation there.
+ * Modern Chrome/Firefox handle both well, so gate the fast image
+ * paths off only on WebKit and keep full-speed rendering elsewhere.
+ */
+const IS_APPLE_WEBKIT =
+  /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+  (navigator.platform === "MacIntel" &&
+    navigator.maxTouchPoints > 1) ||
+  (/Safari/.test(navigator.userAgent) &&
+    !/Chrome|Chromium|Android|CriOS|FxiOS|Edg/.test(
+      navigator.userAgent
+    ));
+
+const PDF_DECODE_OPTIONS = {
+  isImageDecoderSupported:
+    typeof ImageDecoder !== "undefined" && !IS_APPLE_WEBKIT,
+  isOffscreenCanvasSupported:
+    typeof OffscreenCanvas !== "undefined" && !IS_APPLE_WEBKIT
+};
+
 const DB_NAME = "katusoitto-db";
 const DB_VERSION = 1;
 const SONG_STORE = "songs";
@@ -379,9 +402,7 @@ async function readPdfPageCount(file) {
           isEvalSupported: false,
           enableScripting: false,
           enableXfa: false,
-          /* See loadPdf: keep iPad Safari off the broken image paths. */
-          isOffscreenCanvasSupported: false,
-          isImageDecoderSupported: false
+          ...PDF_DECODE_OPTIONS
         })
         .promise;
 
@@ -1351,16 +1372,7 @@ async function loadPdf(file) {
         isEvalSupported: false,
         enableScripting: false,
         enableXfa: false,
-        /*
-         * iPad Safari has no ImageDecoder API and a flaky
-         * OffscreenCanvas, but pdf.js assumes both exist in a
-         * browser and then throws while rasterising image-based
-         * (scanned) sheets. Force the classic decode path so
-         * pages render everywhere; it is only marginally slower
-         * for a single-song PDF.
-         */
-        isOffscreenCanvasSupported: false,
-        isImageDecoderSupported: false
+        ...PDF_DECODE_OPTIONS
       })
       .promise;
 
