@@ -1,3 +1,36 @@
+/* katusoitto-getOrInsert-polyfill: Map/WeakMap.prototype.getOrInsert(Computed) for older
+   Safari (e.g. the 2019 iPad). pdf.js 4.5 calls these on plain Maps but
+   ships no polyfill and assumes the runtime provides them. */
+(function () {
+  function getOrInsertComputed(key, callbackFn) {
+    if (this.has(key)) { return this.get(key); }
+    var value = callbackFn(key);
+    this.set(key, value);
+    return value;
+  }
+  function getOrInsert(key, value) {
+    if (this.has(key)) { return this.get(key); }
+    this.set(key, value);
+    return value;
+  }
+  var ctors = [];
+  if (typeof Map !== "undefined") { ctors.push(Map); }
+  if (typeof WeakMap !== "undefined") { ctors.push(WeakMap); }
+  for (var i = 0; i < ctors.length; i++) {
+    var proto = ctors[i].prototype;
+    if (!proto.getOrInsertComputed) {
+      Object.defineProperty(proto, "getOrInsertComputed", {
+        value: getOrInsertComputed, writable: true, configurable: true
+      });
+    }
+    if (!proto.getOrInsert) {
+      Object.defineProperty(proto, "getOrInsert", {
+        value: getOrInsert, writable: true, configurable: true
+      });
+    }
+  }
+})();
+
 /**
  * @licstart The following is the entire license notice for the
  * JavaScript code in this page
