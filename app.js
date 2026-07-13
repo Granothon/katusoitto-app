@@ -101,7 +101,6 @@ let directTimer = null;
  */
 let activeEngine = null;
 
-let trainingMode = false;
 let rendering = false;
 let pendingRenderPage = null;
 
@@ -238,53 +237,6 @@ const tempoValue =
 
 const pitchToggle =
   document.querySelector("#pitchToggle");
-
-/*
- * Page turn settings
- */
-
-const settingsButton =
-  document.querySelector("#settingsButton");
-
-const settingsDialog =
-  document.querySelector("#settingsDialog");
-
-const settingsSongTitle =
-  document.querySelector("#settingsSongTitle");
-
-const autoTurnEnabled =
-  document.querySelector("#autoTurnEnabled");
-
-const warningSeconds =
-  document.querySelector("#warningSeconds");
-
-const startTrainingButton =
-  document.querySelector("#startTrainingButton");
-
-const stopTrainingButton =
-  document.querySelector("#stopTrainingButton");
-
-const clearPageTurnsButton =
-  document.querySelector("#clearPageTurnsButton");
-
-const pageTurnList =
-  document.querySelector("#pageTurnList");
-
-/*
- * Page turn warning
- */
-
-const turnWarning =
-  document.querySelector("#turnWarning");
-
-const turnWarningText =
-  document.querySelector("#turnWarningText");
-
-const turnWarningCountdown =
-  document.querySelector("#turnWarningCountdown");
-
-const warningProgress =
-  document.querySelector("#warningProgress");
 
 const toast =
   document.querySelector("#toast");
@@ -1051,24 +1003,11 @@ function renderLibrary() {
         song.pdf?.pageCount
       ) || 1;
 
-    const pageTurnInformation =
+    const pageInformation =
       pageCount > 1
         ? `
           <span>
             ${pageCount} pages
-          </span>
-
-          <span>
-            Page turns
-            ${song.pageTurns.length}
-          </span>
-
-          <span>
-            ${
-              song.settings.autoTurnEnabled
-                ? "Auto-turn on"
-                : "Auto-turn off"
-            }
           </span>
         `
         : "";
@@ -1086,7 +1025,7 @@ function renderLibrary() {
           )}
         </span>
 
-        ${pageTurnInformation}
+        ${pageInformation}
       </span>
 
       <span
@@ -1233,18 +1172,6 @@ function resetCurrentPlayback() {
 
   audioSeek.value = 0;
   audioSeek.max = 0;
-
-  hideTurnWarning();
-
-  trainingMode = false;
-
-  startTrainingButton.classList.remove(
-    "hidden"
-  );
-
-  stopTrainingButton.classList.add(
-    "hidden"
-  );
 }
 
 /*
@@ -1310,15 +1237,8 @@ async function openSong(id) {
   currentSongTitle.textContent =
     currentSong.title;
 
-  settingsSongTitle.textContent =
-    currentSong.title;
-
   pageIndicator.textContent =
     "Loading sheet music...";
-
-  settingsButton.classList.add(
-    "hidden"
-  );
 
   pageIndicator.classList.add(
     "hidden"
@@ -1390,7 +1310,6 @@ async function openSong(id) {
     }
 
     updatePageIndicator();
-    renderPageTurnList();
   } catch (error) {
     console.error(error);
 
@@ -1426,17 +1345,6 @@ function getSpreadStart(page) {
   return page % 2 === 1
     ? page
     : page - 1;
-}
-
-function getVisibleEnd() {
-  if (!twoPageMode || !currentPdf) {
-    return currentPage;
-  }
-
-  return Math.min(
-    getSpreadStart(currentPage) + 1,
-    currentPdf.numPages
-  );
 }
 
 async function renderPage(pageNumber) {
@@ -1854,11 +1762,6 @@ function updatePageControls() {
   const hasMultiplePages =
     pageCount > 1;
 
-  settingsButton.classList.toggle(
-    "hidden",
-    !hasMultiplePages
-  );
-
   pageIndicator.classList.toggle(
     "hidden",
     !hasMultiplePages
@@ -1929,10 +1832,6 @@ async function nextPage() {
       return;
     }
 
-    if (trainingMode) {
-      await recordPageTurn(nextStart);
-    }
-
     await renderPage(nextStart);
 
     return;
@@ -1942,17 +1841,8 @@ async function nextPage() {
     return;
   }
 
-  const nextPageNumber =
-    currentPage + 1;
-
-  if (trainingMode) {
-    await recordPageTurn(
-      nextPageNumber
-    );
-  }
-
   await renderPage(
-    nextPageNumber
+    currentPage + 1
   );
 }
 
@@ -1980,52 +1870,6 @@ async function previousPage() {
 
   await renderPage(
     currentPage - 1
-  );
-}
-
-async function recordPageTurn(
-  targetPage
-) {
-  const time =
-    Number(
-      getAudioTime().toFixed(2)
-    );
-
-  currentSong.pageTurns =
-    currentSong.pageTurns.filter(
-      turn => {
-        return (
-          turn.toPage !==
-          targetPage
-        );
-      }
-    );
-
-  currentSong.pageTurns.push({
-    fromPage:
-      targetPage - 1,
-
-    toPage:
-      targetPage,
-
-    time
-  });
-
-  currentSong.pageTurns.sort(
-    (a, b) => {
-      return a.time - b.time;
-    }
-  );
-
-  await saveSong(
-    currentSong
-  );
-
-  updateSongInMemory();
-  renderPageTurnList();
-
-  showToast(
-    `Page ${targetPage} turn saved at ${formatTime(time)}.`
   );
 }
 
@@ -2207,7 +2051,6 @@ function finishPlayback() {
   playbackPosition = audioDuration || 0;
 
   updatePlayPauseButton(false);
-  hideTurnWarning();
 }
 
 function ensureAudioContext() {
@@ -2380,8 +2223,6 @@ function handleAudioProgress() {
   currentTimeElement.textContent =
     formatTime(time);
 
-  processAutomaticPageTurns();
-
   if (
     audioDuration > 0 &&
     time >= audioDuration - 0.08
@@ -2503,7 +2344,6 @@ async function togglePlayback() {
       pausePlayback();
 
       updatePlayPauseButton(false);
-      hideTurnWarning();
     } else {
       let offset = playbackPosition;
 
@@ -2544,7 +2384,6 @@ async function restartSong() {
   await renderPage(1);
 
   updatePlayPauseButton(false);
-  hideTurnWarning();
 }
 
 async function openNextSong() {
@@ -2573,204 +2412,8 @@ async function openNextSong() {
 }
 
 /*
- * Automatic page turns
+ * Keep the in-memory songs array in sync with currentSong.
  */
-
-function processAutomaticPageTurns() {
-  if (
-    !currentSong ||
-    !currentSong.settings
-      .autoTurnEnabled ||
-    trainingMode ||
-    !isPlaying
-  ) {
-    hideTurnWarning();
-    return;
-  }
-
-  if (
-    !currentSong.pageTurns ||
-    currentSong.pageTurns.length === 0
-  ) {
-    hideTurnWarning();
-    return;
-  }
-
-  const currentAudioTime =
-    getAudioTime();
-
-  const visibleEnd =
-    getVisibleEnd();
-
-  const nextTurn =
-    currentSong.pageTurns.find(
-      turn => {
-        return (
-          turn.toPage >
-          visibleEnd
-        );
-      }
-    );
-
-  if (!nextTurn) {
-    hideTurnWarning();
-    return;
-  }
-
-  const mediaSecondsUntilTurn =
-    nextTurn.time -
-    currentAudioTime;
-
-  /*
-   * The turn point is in the audio's own timeline, so it
-   * lands at the right musical spot regardless of the
-   * tempo – no correction needed here.
-   */
-  if (mediaSecondsUntilTurn <= 0) {
-    hideTurnWarning();
-
-    renderPage(
-      nextTurn.toPage
-    );
-
-    return;
-  }
-
-  /*
-   * The warning lead time is computed in real-world
-   * seconds: faster tempo -> less real time until the
-   * turn, so the warning appears at the right moment.
-   */
-  const playbackRate =
-    currentTempo || 1;
-
-  const secondsUntilTurn =
-    mediaSecondsUntilTurn /
-    playbackRate;
-
-  const warningTime =
-    Number(
-      currentSong.settings
-        .warningSeconds
-    ) || 5;
-
-  if (
-    secondsUntilTurn <=
-    warningTime
-  ) {
-    showTurnWarning(
-      nextTurn,
-      secondsUntilTurn,
-      warningTime
-    );
-  } else {
-    hideTurnWarning();
-  }
-}
-
-function showTurnWarning(
-  turn,
-  secondsUntilTurn,
-  totalWarningTime
-) {
-  const elapsed =
-    totalWarningTime -
-    secondsUntilTurn;
-
-  const progress =
-    Math.min(
-      100,
-      Math.max(
-        0,
-        (
-          elapsed /
-          totalWarningTime
-        ) * 100
-      )
-    );
-
-  turnWarning.classList.remove(
-    "hidden"
-  );
-
-  turnWarningText.textContent =
-    `Page ${turn.toPage} turning`;
-
-  turnWarningCountdown.textContent =
-    `${Math.max(
-      1,
-      Math.ceil(
-        secondsUntilTurn
-      )
-    )} s`;
-
-  warningProgress.style.width =
-    `${progress}%`;
-}
-
-function hideTurnWarning() {
-  turnWarning.classList.add(
-    "hidden"
-  );
-
-  warningProgress.style.width =
-    "0%";
-}
-
-/*
- * Page turn settings
- */
-
-function openSettings() {
-  if (!currentSong) {
-    return;
-  }
-
-  const pageCount =
-    Number(
-      currentSong.pdf?.pageCount
-    ) || 1;
-
-  if (pageCount <= 1) {
-    return;
-  }
-
-  autoTurnEnabled.checked =
-    currentSong.settings
-      .autoTurnEnabled;
-
-  warningSeconds.value =
-    String(
-      currentSong.settings
-        .warningSeconds
-    );
-
-  renderPageTurnList();
-
-  settingsDialog.showModal();
-}
-
-async function updateSettings() {
-  if (!currentSong) {
-    return;
-  }
-
-  currentSong.settings
-    .autoTurnEnabled =
-      autoTurnEnabled.checked;
-
-  currentSong.settings
-    .warningSeconds =
-      Number(
-        warningSeconds.value
-      );
-
-  await saveSong(
-    currentSong
-  );
-
-  updateSongInMemory();
-}
 
 function updateSongInMemory() {
   if (!currentSong) {
@@ -2789,230 +2432,6 @@ function updateSongInMemory() {
     songs[index] =
       currentSong;
   }
-}
-
-/*
- * Page turn teaching mode
- */
-
-async function startTraining() {
-  if (!currentSong) {
-    return;
-  }
-
-  const pageCount =
-    Number(
-      currentSong.pdf?.pageCount
-    ) || 1;
-
-  if (pageCount <= 1) {
-    return;
-  }
-
-  const accepted =
-    currentSong.pageTurns.length === 0 ||
-    confirm(
-      "Replace previously saved page turns?"
-    );
-
-  if (!accepted) {
-    return;
-  }
-
-  currentSong.pageTurns = [];
-
-  await saveSong(
-    currentSong
-  );
-
-  updateSongInMemory();
-
-  trainingMode = true;
-
-  startTrainingButton.classList.add(
-    "hidden"
-  );
-
-  stopTrainingButton.classList.remove(
-    "hidden"
-  );
-
-  settingsDialog.close();
-
-  await restartSong();
-
-  showToast(
-    "Teaching mode active."
-  );
-}
-
-async function stopTraining() {
-  trainingMode = false;
-
-  startTrainingButton.classList.remove(
-    "hidden"
-  );
-
-  stopTrainingButton.classList.add(
-    "hidden"
-  );
-
-  await saveSong(
-    currentSong
-  );
-
-  updateSongInMemory();
-  renderPageTurnList();
-
-  showToast(
-    "Page turns saved."
-  );
-}
-
-function renderPageTurnList() {
-  pageTurnList.innerHTML = "";
-
-  if (
-    !currentSong ||
-    currentSong.pageTurns.length === 0
-  ) {
-    pageTurnList.innerHTML = `
-      <p style="color: var(--muted)">
-        No saved page turns.
-      </p>
-    `;
-
-    return;
-  }
-
-  for (
-    const turn of
-    currentSong.pageTurns
-  ) {
-    const item =
-      document.createElement(
-        "div"
-      );
-
-    item.className =
-      "page-turn-item";
-
-    item.innerHTML = `
-      <strong>
-        Page
-        ${turn.fromPage}
-        →
-        ${turn.toPage}
-      </strong>
-
-      <input
-        type="number"
-        min="0"
-        step="0.1"
-        value="${turn.time}"
-        aria-label="Page turn time in seconds"
-      >
-
-      <button
-        type="button"
-        class="text-button"
-      >
-        Delete
-      </button>
-    `;
-
-    const timeInput =
-      item.querySelector(
-        "input"
-      );
-
-    const deleteButton =
-      item.querySelector(
-        "button"
-      );
-
-    timeInput.addEventListener(
-      "change",
-      async () => {
-        turn.time =
-          Math.max(
-            0,
-            Number(
-              timeInput.value
-            ) || 0
-          );
-
-        currentSong.pageTurns.sort(
-          (a, b) => {
-            return (
-              a.time -
-              b.time
-            );
-          }
-        );
-
-        await saveSong(
-          currentSong
-        );
-
-        updateSongInMemory();
-        renderPageTurnList();
-      }
-    );
-
-    deleteButton.addEventListener(
-      "click",
-      async () => {
-        currentSong.pageTurns =
-          currentSong.pageTurns.filter(
-            savedTurn => {
-              return (
-                savedTurn !==
-                turn
-              );
-            }
-          );
-
-        await saveSong(
-          currentSong
-        );
-
-        updateSongInMemory();
-        renderPageTurnList();
-      }
-    );
-
-    pageTurnList.appendChild(
-      item
-    );
-  }
-}
-
-async function clearPageTurns() {
-  if (
-    !currentSong ||
-    currentSong.pageTurns.length === 0
-  ) {
-    return;
-  }
-
-  const accepted =
-    confirm(
-      "Delete all saved page turns?"
-    );
-
-  if (!accepted) {
-    return;
-  }
-
-  currentSong.pageTurns = [];
-
-  await saveSong(
-    currentSong
-  );
-
-  updateSongInMemory();
-  renderPageTurnList();
 }
 
 /*
@@ -3047,10 +2466,6 @@ function closePlayer() {
 
   pageIndicator.textContent =
     "Page 1 / 1";
-
-  settingsButton.classList.add(
-    "hidden"
-  );
 
   pageIndicator.classList.add(
     "hidden"
@@ -3299,40 +2714,6 @@ pitchToggle.addEventListener(
 );
 
 /*
- * Page turn settings
- */
-
-settingsButton.addEventListener(
-  "click",
-  openSettings
-);
-
-autoTurnEnabled.addEventListener(
-  "change",
-  updateSettings
-);
-
-warningSeconds.addEventListener(
-  "change",
-  updateSettings
-);
-
-startTrainingButton.addEventListener(
-  "click",
-  startTraining
-);
-
-stopTrainingButton.addEventListener(
-  "click",
-  stopTraining
-);
-
-clearPageTurnsButton.addEventListener(
-  "click",
-  clearPageTurns
-);
-
-/*
  * Backing track seek
  */
 
@@ -3358,32 +2739,6 @@ audioSeek.addEventListener(
 
     currentTimeElement.textContent =
       formatTime(time);
-
-    if (
-      currentSong &&
-      currentSong.pageTurns.length > 0
-    ) {
-      let correctPage = 1;
-
-      for (
-        const turn of
-        currentSong.pageTurns
-      ) {
-        if (turn.time <= time) {
-          correctPage =
-            turn.toPage;
-        }
-      }
-
-      if (
-        correctPage !==
-        currentPage
-      ) {
-        renderPage(
-          correctPage
-        );
-      }
-    }
   }
 );
 
@@ -3640,16 +2995,30 @@ window.addEventListener(
 );
 
 /*
- * Keyboard page turn
+ * Keyboard / page-turn pedal navigation.
+ *
+ * Bluetooth page-turn pedals (AirTurn, PageFlip, iRig BlueTurn,
+ * Coda, …) act as HID keyboards. Their common defaults are covered
+ * here: arrows and Page Up/Down. Down/Right/PageDown go forward,
+ * Up/Left/PageUp go back. (Space is intentionally left out so it
+ * cannot block the play button's keyboard activation.)
  */
+const NEXT_PAGE_KEYS = new Set([
+  "ArrowRight",
+  "ArrowDown",
+  "PageDown"
+]);
+
+const PREVIOUS_PAGE_KEYS = new Set([
+  "ArrowLeft",
+  "ArrowUp",
+  "PageUp"
+]);
 
 window.addEventListener(
   "keydown",
   event => {
-    if (
-      playerView.classList.contains("hidden") ||
-      settingsDialog.open
-    ) {
+    if (playerView.classList.contains("hidden")) {
       return;
     }
 
@@ -3670,16 +3039,10 @@ window.addEventListener(
       return;
     }
 
-    if (
-      event.key === "ArrowRight" ||
-      event.key === "PageDown"
-    ) {
+    if (NEXT_PAGE_KEYS.has(event.key)) {
       event.preventDefault();
       nextPage();
-    } else if (
-      event.key === "ArrowLeft" ||
-      event.key === "PageUp"
-    ) {
+    } else if (PREVIOUS_PAGE_KEYS.has(event.key)) {
       event.preventDefault();
       previousPage();
     }

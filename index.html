@@ -218,16 +218,6 @@
             <span class="to-light" aria-hidden="true">☀️</span>
             <span class="to-dark" aria-hidden="true">🌙</span>
           </button>
-
-          <button
-            id="settingsButton"
-            class="icon-button hidden"
-            type="button"
-            aria-label="Page turn settings"
-            title="Page turn settings"
-          >
-            Page turns
-          </button>
         </div>
       </header>
 
@@ -236,28 +226,6 @@
         id="pdfArea"
         class="pdf-area fit-page"
       >
-        <div
-          id="turnWarning"
-          class="turn-warning hidden"
-        >
-          <div>
-            <strong id="turnWarningText">
-              Page turning
-            </strong>
-
-            <span id="turnWarningCountdown">
-              5 s
-            </span>
-          </div>
-
-          <div class="warning-track">
-            <div
-              id="warningProgress"
-              class="warning-progress"
-            ></div>
-          </div>
-        </div>
-
         <canvas id="pdfCanvas"></canvas>
 
         <button
@@ -391,123 +359,6 @@
         </div>
       </section>
     </section>
-
-    <!-- Page turn settings -->
-    <dialog id="settingsDialog">
-      <form
-        method="dialog"
-        class="dialog-content"
-      >
-        <header class="dialog-header">
-          <div>
-            <h2>Page turns</h2>
-            <p id="settingsSongTitle"></p>
-          </div>
-
-          <button
-            id="closeSettingsButton"
-            class="icon-button"
-            type="submit"
-            value="cancel"
-          >
-            Close
-          </button>
-        </header>
-
-        <label class="setting-row">
-          <span>
-            <strong>
-              Automatic page turns
-            </strong>
-
-            <small>
-              Turn pages based on the backing track time
-            </small>
-          </span>
-
-          <input
-            id="autoTurnEnabled"
-            type="checkbox"
-            checked
-          >
-        </label>
-
-        <label class="setting-row">
-          <span>
-            <strong>Warning time</strong>
-
-            <small>
-              Shown before a page turn
-            </small>
-          </span>
-
-          <select id="warningSeconds">
-            <option value="3">
-              3 seconds
-            </option>
-
-            <option
-              value="5"
-              selected
-            >
-              5 seconds
-            </option>
-
-            <option value="8">
-              8 seconds
-            </option>
-
-            <option value="10">
-              10 seconds
-            </option>
-          </select>
-        </label>
-
-        <section class="training-section">
-          <h3>Teach page turns</h3>
-
-          <p>
-            Start teaching mode and turn the page
-            at the points you want.
-          </p>
-
-          <button
-            id="startTrainingButton"
-            type="button"
-            class="primary-button full-width"
-          >
-            Start teaching
-          </button>
-
-          <button
-            id="stopTrainingButton"
-            type="button"
-            class="danger-button full-width hidden"
-          >
-            Stop and save
-          </button>
-        </section>
-
-        <section>
-          <div class="section-heading">
-            <h3>Saved page turns</h3>
-
-            <button
-              id="clearPageTurnsButton"
-              type="button"
-              class="text-button"
-            >
-              Clear all
-            </button>
-          </div>
-
-          <div
-            id="pageTurnList"
-            class="page-turn-list"
-          ></div>
-        </section>
-      </form>
-    </dialog>
 
     <div
       id="toast"
