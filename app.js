@@ -128,6 +128,12 @@ let swipeStartY = 0;
 
 let lastPdfTapTime = 0;
 
+let renamingSongId = null;
+let longPressTimer = null;
+let longPressFired = false;
+let longPressStartX = 0;
+let longPressStartY = 0;
+
 let pendingImport = {
   pdf: null,
   mp3: null
@@ -241,6 +247,15 @@ const tempoValue =
 
 const pitchToggle =
   document.querySelector("#pitchToggle");
+
+const renameDialog =
+  document.querySelector("#renameDialog");
+
+const renameInput =
+  document.querySelector("#renameInput");
+
+const renameCancelButton =
+  document.querySelector("#renameCancelButton");
 
 const toast =
   document.querySelector("#toast");
@@ -1046,6 +1061,15 @@ function renderLibrary() {
     card.addEventListener(
       "click",
       event => {
+        /*
+         * A long-press already opened the rename dialog; swallow the
+         * click it produces so the song does not also open.
+         */
+        if (longPressFired) {
+          longPressFired = false;
+          return;
+        }
+
         const deleteButton =
           event.target.closest(
             "[data-delete-id]"
@@ -1060,6 +1084,88 @@ function renderLibrary() {
         }
 
         openSong(song.id);
+      }
+    );
+
+    /*
+     * Rename: right-click on desktop, long-press on a tablet.
+     * (Not on the delete button.)
+     */
+    card.addEventListener(
+      "contextmenu",
+      event => {
+        if (event.target.closest("[data-delete-id]")) {
+          return;
+        }
+
+        event.preventDefault();
+        openRename(song.id);
+      }
+    );
+
+    card.addEventListener(
+      "touchstart",
+      event => {
+        if (
+          event.touches.length !== 1 ||
+          event.target.closest("[data-delete-id]")
+        ) {
+          return;
+        }
+
+        longPressFired = false;
+        longPressStartX = event.touches[0].clientX;
+        longPressStartY = event.touches[0].clientY;
+
+        clearTimeout(longPressTimer);
+
+        longPressTimer =
+          setTimeout(() => {
+            longPressFired = true;
+            openRename(song.id);
+          }, 500);
+      },
+      {
+        passive: true
+      }
+    );
+
+    card.addEventListener(
+      "touchmove",
+      event => {
+        if (event.touches.length !== 1) {
+          return;
+        }
+
+        const dx =
+          event.touches[0].clientX - longPressStartX;
+
+        const dy =
+          event.touches[0].clientY - longPressStartY;
+
+        if (
+          Math.abs(dx) > 10 ||
+          Math.abs(dy) > 10
+        ) {
+          clearTimeout(longPressTimer);
+        }
+      },
+      {
+        passive: true
+      }
+    );
+
+    card.addEventListener(
+      "touchend",
+      () => {
+        clearTimeout(longPressTimer);
+      }
+    );
+
+    card.addEventListener(
+      "touchcancel",
+      () => {
+        clearTimeout(longPressTimer);
       }
     );
 
@@ -1097,6 +1203,80 @@ async function deleteSong(song) {
     "Song deleted from the library."
   );
 }
+
+/*
+ * Rename a song
+ */
+
+function openRename(songId) {
+  if (renameDialog.open) {
+    return;
+  }
+
+  const song =
+    songs.find(item => item.id === songId);
+
+  if (!song) {
+    return;
+  }
+
+  renamingSongId = songId;
+  renameInput.value = song.title;
+
+  renameDialog.showModal();
+
+  renameInput.focus();
+  renameInput.select();
+}
+
+renameCancelButton.addEventListener(
+  "click",
+  () => {
+    renameDialog.close("cancel");
+  }
+);
+
+renameDialog.addEventListener(
+  "close",
+  async () => {
+    const songId = renamingSongId;
+    renamingSongId = null;
+
+    if (
+      renameDialog.returnValue !== "save" ||
+      !songId
+    ) {
+      return;
+    }
+
+    const song =
+      songs.find(item => item.id === songId);
+
+    if (!song) {
+      return;
+    }
+
+    const newTitle =
+      renameInput.value.trim();
+
+    if (!newTitle || newTitle === song.title) {
+      return;
+    }
+
+    song.title = newTitle;
+
+    await saveSong(song);
+
+    if (currentSong?.id === songId) {
+      currentSong.title = newTitle;
+      currentSongTitle.textContent = newTitle;
+    }
+
+    renderLibrary();
+
+    showToast("Song renamed.");
+  }
+);
 
 /*
  * Play button state

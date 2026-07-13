@@ -360,6 +360,45 @@
       </section>
     </section>
 
+    <!-- Rename song -->
+    <dialog id="renameDialog">
+      <form
+        method="dialog"
+        class="dialog-content"
+      >
+        <header class="dialog-header">
+          <div>
+            <h2>Rename song</h2>
+          </div>
+
+          <button
+            id="renameCancelButton"
+            class="icon-button"
+            type="button"
+          >
+            Close
+          </button>
+        </header>
+
+        <input
+          id="renameInput"
+          class="rename-input"
+          type="text"
+          required
+          autocomplete="off"
+          aria-label="Song title"
+        >
+
+        <button
+          class="primary-button full-width"
+          type="submit"
+          value="save"
+        >
+          Save
+        </button>
+      </form>
+    </dialog>
+
     <div
       id="toast"
       class="toast hidden"
