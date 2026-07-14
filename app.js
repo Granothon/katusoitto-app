@@ -824,6 +824,18 @@ function blobToDataUrl(blob) {
 }
 
 async function dataUrlToBlob(dataUrl) {
+  /*
+   * Only fetch inline data: URLs. A backup file is untrusted input,
+   * so this stops a crafted entry from making the app request an
+   * arbitrary (external or same-origin) URL on import.
+   */
+  if (
+    typeof dataUrl !== "string" ||
+    !dataUrl.startsWith("data:")
+  ) {
+    throw new Error("Unsupported data URL in backup");
+  }
+
   const response = await fetch(dataUrl);
   return response.blob();
 }
@@ -1052,7 +1064,6 @@ function renderLibrary() {
         role="button"
         aria-label="Delete song"
         title="Delete song"
-        data-delete-id="${song.id}"
       >
         ✕
       </span>
@@ -1072,7 +1083,7 @@ function renderLibrary() {
 
         const deleteButton =
           event.target.closest(
-            "[data-delete-id]"
+            ".delete-song-button"
           );
 
         if (deleteButton) {
@@ -1094,7 +1105,7 @@ function renderLibrary() {
     card.addEventListener(
       "contextmenu",
       event => {
-        if (event.target.closest("[data-delete-id]")) {
+        if (event.target.closest(".delete-song-button")) {
           return;
         }
 
@@ -1108,7 +1119,7 @@ function renderLibrary() {
       event => {
         if (
           event.touches.length !== 1 ||
-          event.target.closest("[data-delete-id]")
+          event.target.closest(".delete-song-button")
         ) {
           return;
         }
