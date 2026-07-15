@@ -1258,25 +1258,29 @@ function attachCardDrag(card) {
       }
 
       cardDrag = {
-        card,
+        el: card,
         pointerId: event.pointerId,
         startX: event.clientX,
         startY: event.clientY,
         lifted: false,
-        holdTimer: null
+        holdTimer: null,
+        lockX: false
       };
 
       if (event.pointerType !== "mouse") {
         cardDrag.holdTimer =
           setTimeout(() => {
-            liftCard(card);
+            liftCard(
+              cardDrag.startX,
+              cardDrag.startY
+            );
           }, 450);
       }
     }
   );
 }
 
-function liftCard(card) {
+function liftCard(x, y) {
   if (!cardDrag || cardDrag.lifted) {
     return;
   }
@@ -1284,9 +1288,200 @@ function liftCard(card) {
   clearTimeout(cardDrag.holdTimer);
 
   cardDrag.lifted = true;
-  card.classList.add("dragging");
 
-  capturePointerForDrag(cardDrag.pointerId);
+  beginDragVisual(cardDrag, x, y);
+}
+
+/*
+ * Drag visuals: the lifted element floats with the pointer via a
+ * transform (a small pick-up "pop" eases it up from the pressed
+ * state), displaced siblings glide to their new slots with a FLIP
+ * animation, and on release the element settles into its slot.
+ */
+
+function beginDragVisual(drag, x, y) {
+  const rect =
+    drag.el.getBoundingClientRect();
+
+  drag.baseX = rect.left;
+  drag.baseY = rect.top;
+  drag.grabX = x - rect.left;
+  drag.grabY = y - rect.top;
+
+  drag.el.classList.add("dragging");
+  drag.el.style.willChange = "transform";
+
+  /* Pick-up pop, then raw pointer-following. */
+  drag.el.style.transition =
+    "transform 130ms ease";
+
+  applyDragTransform(drag, x, y);
+
+  drag.popTimer =
+    setTimeout(() => {
+      if (drag === cardDrag || drag === setlistDrag) {
+        drag.el.style.transition = "none";
+      }
+    }, 150);
+
+  capturePointerForDrag(drag.pointerId);
+}
+
+function applyDragTransform(drag, x, y) {
+  const dx =
+    drag.lockX
+      ? 0
+      : x - drag.grabX - drag.baseX;
+
+  const dy =
+    y - drag.grabY - drag.baseY;
+
+  drag.el.style.transform =
+    `translate(${dx}px, ${dy}px) scale(1.03)`;
+}
+
+/*
+ * The layout slot changed (re-insertion): measure it anew. The
+ * transition is forced off during the measurement — otherwise a
+ * still-running pick-up pop would make getBoundingClientRect return
+ * a mid-animation rect and skew the float for the rest of the drag.
+ */
+function remeasureDragBase(drag) {
+  const el = drag.el;
+
+  const previousTransition =
+    el.style.transition;
+
+  el.style.transition = "none";
+  el.style.transform = "none";
+
+  const rect =
+    el.getBoundingClientRect();
+
+  drag.baseX = rect.left;
+  drag.baseY = rect.top;
+
+  el.style.transition =
+    previousTransition;
+}
+
+function settleDrag(drag) {
+  clearTimeout(drag.popTimer);
+
+  const el = drag.el;
+
+  el.classList.remove("dragging");
+  el.classList.add("drag-settle");
+
+  el.style.transition = "";
+
+  requestAnimationFrame(() => {
+    el.style.transform = "";
+  });
+
+  setTimeout(() => {
+    el.classList.remove("drag-settle");
+    el.style.willChange = "";
+  }, 240);
+}
+
+/*
+ * Reorder against the pointer and FLIP-animate every sibling that
+ * changed place, so the layout glides instead of teleporting.
+ */
+function reorderWithFlip(
+  container,
+  selector,
+  drag,
+  x,
+  y
+) {
+  const target =
+    findReorderTarget(
+      container,
+      selector,
+      drag.el,
+      x,
+      y
+    );
+
+  if (!target) {
+    return false;
+  }
+
+  const siblings = [
+    ...container.querySelectorAll(selector)
+  ].filter(el => el !== drag.el);
+
+  const before = new Map();
+
+  for (const el of siblings) {
+    before.set(
+      el,
+      el.getBoundingClientRect()
+    );
+  }
+
+  performReorder(
+    container,
+    drag.el,
+    target
+  );
+
+  /* Keep the floating element glued to the pointer. */
+  remeasureDragBase(drag);
+  applyDragTransform(drag, x, y);
+
+  for (const el of siblings) {
+    const prev = before.get(el);
+    const next =
+      el.getBoundingClientRect();
+
+    const dx = prev.left - next.left;
+    const dy = prev.top - next.top;
+
+    if (dx || dy) {
+      animateFlip(el, dx, dy);
+    }
+  }
+
+  return true;
+}
+
+function animateFlip(el, dx, dy) {
+  el.classList.add("flip-anim");
+
+  el.style.transition = "none";
+  el.style.transform =
+    `translate(${dx}px, ${dy}px)`;
+
+  /* Force the offset to take, then glide back to place. */
+  void el.offsetWidth;
+
+  el.style.transition = "";
+  el.style.transform = "";
+
+  const done = event => {
+    if (
+      event &&
+      event.propertyName !== "transform"
+    ) {
+      return;
+    }
+
+    el.classList.remove("flip-anim");
+    el.removeEventListener(
+      "transitionend",
+      done
+    );
+  };
+
+  el.addEventListener(
+    "transitionend",
+    done
+  );
+
+  setTimeout(done, 260);
 }
 
 /*
@@ -1314,7 +1509,7 @@ function finishCardDrag() {
   clearTimeout(cardDrag.holdTimer);
 
   if (cardDrag.lifted) {
-    cardDrag.card.classList.remove("dragging");
+    settleDrag(cardDrag);
     suppressNextClick = true;
     persistLibraryOrder();
   }
@@ -1345,7 +1540,10 @@ window.addEventListener(
 
         if (event.pointerType === "mouse") {
           if (moved > 6) {
-            liftCard(cardDrag.card);
+            liftCard(
+              event.clientX,
+              event.clientY
+            );
           }
         } else if (moved > 10) {
           /* The finger slid before the hold finished: a scroll. */
@@ -1357,10 +1555,16 @@ window.addEventListener(
         }
       }
 
-      reorderAgainstPoint(
+      applyDragTransform(
+        cardDrag,
+        event.clientX,
+        event.clientY
+      );
+
+      reorderWithFlip(
         songGrid,
         ".song-card",
-        cardDrag.card,
+        cardDrag,
         event.clientX,
         event.clientY
       );
@@ -1372,11 +1576,17 @@ window.addEventListener(
       setlistDrag &&
       event.pointerId === setlistDrag.pointerId
     ) {
+      applyDragTransform(
+        setlistDrag,
+        event.clientX,
+        event.clientY
+      );
+
       if (
-        reorderAgainstPoint(
+        reorderWithFlip(
           setlistItems,
           ".setlist-item",
-          setlistDrag.row,
+          setlistDrag,
           event.clientX,
           event.clientY
         )
@@ -1479,9 +1689,11 @@ window.addEventListener(
 /*
  * Live reorder shared by the library grid and the setlist: move the
  * dragged element to the other side of whichever sibling is under
- * the pointer, so the layout reflows under the finger.
+ * the pointer, so the layout reflows under the finger. The dragged
+ * element has pointer-events: none while lifted, so hit-testing sees
+ * through it.
  */
-function reorderAgainstPoint(
+function findReorderTarget(
   container,
   selector,
   dragged,
@@ -1497,11 +1709,21 @@ function reorderAgainstPoint(
   if (
     !target ||
     target === dragged ||
-    target.parentElement !== container
+    target.parentElement !== container ||
+    /* A mid-glide sibling would cause swap oscillation. */
+    target.classList.contains("flip-anim")
   ) {
-    return false;
+    return null;
   }
 
+  return target;
+}
+
+function performReorder(
+  container,
+  dragged,
+  target
+) {
   const position =
     dragged.compareDocumentPosition(target);
 
@@ -1516,8 +1738,6 @@ function reorderAgainstPoint(
       target
     );
   }
-
-  return true;
 }
 
 async function persistLibraryOrder() {
@@ -1911,13 +2131,17 @@ function attachSetlistDrag(row, handle) {
       event.preventDefault();
 
       setlistDrag = {
-        row,
-        pointerId: event.pointerId
+        el: row,
+        pointerId: event.pointerId,
+        /* A vertical list: keep the float on its own axis. */
+        lockX: true
       };
 
-      row.classList.add("dragging");
-
-      capturePointerForDrag(event.pointerId);
+      beginDragVisual(
+        setlistDrag,
+        event.clientX,
+        event.clientY
+      );
     }
   );
 }
@@ -1927,7 +2151,7 @@ function finishSetlistDrag() {
     return;
   }
 
-  setlistDrag.row.classList.remove("dragging");
+  settleDrag(setlistDrag);
   setlistDrag = null;
 
   suppressNextClick = true;
@@ -1970,7 +2194,16 @@ function persistSetlistOrder() {
   }
 
   saveSetlistState();
-  renderSetlist();
+
+  /*
+   * The rows already sit in the right DOM order and numbering is
+   * kept live during the drag; a rebuild here would cut the drop
+   * animation short. Refresh the labels only.
+   */
+  if (gigIndex !== null) {
+    resumeGigButton.textContent =
+      `Resume gig — ${gigIndex + 1} / ${setlist.length}`;
+  }
 }
 
 /*

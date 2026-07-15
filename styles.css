@@ -659,13 +659,25 @@ h3 {
   color: var(--accent-strong);
 }
 
-/* A lifted card during drag-reorder */
+/*
+ * A lifted card during drag-reorder. It floats with the pointer via
+ * an inline transform (so no transform here), rides above the grid,
+ * and lets hit-testing see the cards underneath it.
+ */
 .song-card.dragging {
-  transform: scale(1.03);
   box-shadow: var(--shadow-2);
-  opacity: 0.92;
+  opacity: 0.95;
   z-index: 5;
-  border-color: var(--border-strong);
+  border-color: var(--accent);
+  pointer-events: none;
+}
+
+/* Dropped: glide back into the slot, still riding on top. */
+.song-card.drag-settle,
+.setlist-item.drag-settle {
+  z-index: 5;
+  box-shadow: var(--shadow-2);
+  pointer-events: none;
 }
 
 /*
@@ -728,6 +740,11 @@ h3 {
 
   -webkit-user-select: none;
   user-select: none;
+
+  transition:
+    transform 150ms ease,
+    border-color 130ms ease,
+    box-shadow 130ms ease;
 }
 
 .setlist-item.current {
@@ -740,10 +757,11 @@ h3 {
 }
 
 .setlist-item.dragging {
-  transform: scale(1.02);
   box-shadow: var(--shadow-2);
-  opacity: 0.92;
-  border-color: var(--border-strong);
+  opacity: 0.95;
+  z-index: 5;
+  border-color: var(--accent);
+  pointer-events: none;
 }
 
 .setlist-handle {
