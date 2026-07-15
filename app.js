@@ -133,12 +133,15 @@ let renamingSongId = null;
 /*
  * Drag-reorder state. Library cards lift on a still half-second hold
  * (touch) or on drag movement (mouse); setlist rows lift instantly
- * from their ≡ handle. cardDragCompleted swallows the click event a
- * finished drag produces.
+ * from their ≡ handle. Move/up events are handled at window level and
+ * pointer capture is taken on documentElement: capturing the dragged
+ * element itself would break mid-drag, because a DOM re-insertion
+ * (the reorder) makes the browser release its capture.
+ * suppressNextClick swallows the click a finished drag produces.
  */
 let cardDrag = null;
-let cardDragCompleted = false;
 let setlistDrag = null;
+let suppressNextClick = false;
 
 /*
  * Setlist & gig state. setlist holds song ids in play order;
@@ -1176,15 +1179,6 @@ function renderLibrary() {
     card.addEventListener(
       "click",
       event => {
-        /*
-         * A drag-reorder just ended; swallow the click it produces so
-         * the song does not also open.
-         */
-        if (cardDragCompleted) {
-          cardDragCompleted = false;
-          return;
-        }
-
         if (
           event.target.closest(
             ".delete-song-button"
@@ -1255,6 +1249,7 @@ function attachCardDrag(card) {
     event => {
       if (
         cardDrag ||
+        setlistDrag ||
         event.button !== 0 ||
         event.target.closest(".delete-song-button") ||
         event.target.closest(".rename-song-button")
@@ -1279,91 +1274,6 @@ function attachCardDrag(card) {
       }
     }
   );
-
-  card.addEventListener(
-    "pointermove",
-    event => {
-      if (
-        !cardDrag ||
-        cardDrag.card !== card ||
-        event.pointerId !== cardDrag.pointerId
-      ) {
-        return;
-      }
-
-      if (!cardDrag.lifted) {
-        const moved =
-          Math.hypot(
-            event.clientX - cardDrag.startX,
-            event.clientY - cardDrag.startY
-          );
-
-        if (event.pointerType === "mouse") {
-          if (moved > 6) {
-            liftCard(card);
-          }
-        } else if (moved > 10) {
-          /* The finger slid before the hold finished: a scroll. */
-          cancelCardDrag();
-        }
-
-        if (!cardDrag || !cardDrag.lifted) {
-          return;
-        }
-      }
-
-      reorderAgainstPoint(
-        songGrid,
-        ".song-card",
-        card,
-        event.clientX,
-        event.clientY
-      );
-    }
-  );
-
-  card.addEventListener(
-    "pointerup",
-    event => {
-      if (
-        !cardDrag ||
-        cardDrag.card !== card ||
-        event.pointerId !== cardDrag.pointerId
-      ) {
-        return;
-      }
-
-      clearTimeout(cardDrag.holdTimer);
-
-      if (cardDrag.lifted) {
-        card.classList.remove("dragging");
-        cardDragCompleted = true;
-        persistLibraryOrder();
-      }
-
-      cardDrag = null;
-    }
-  );
-
-  card.addEventListener(
-    "pointercancel",
-    () => {
-      cancelCardDrag();
-    }
-  );
-
-  /* Keep the page from scrolling while a card is lifted. */
-  card.addEventListener(
-    "touchmove",
-    event => {
-      if (cardDrag?.lifted && cardDrag.card === card) {
-        event.preventDefault();
-      }
-    },
-    {
-      passive: false
-    }
-  );
 }
 
 function liftCard(card) {
@@ -1376,14 +1286,27 @@ function liftCard(card) {
   cardDrag.lifted = true;
   card.classList.add("dragging");
 
+  capturePointerForDrag(cardDrag.pointerId);
+}
+
+/*
+ * Capture on documentElement, never on the dragged element: the
+ * reorder re-inserts the element in the DOM, and that would make the
+ * browser drop a capture held by the element itself (the drag would
+ * die after the first swap). documentElement is never moved, so the
+ * capture — and the drag — survive, even outside the window.
+ */
+function capturePointerForDrag(pointerId) {
   try {
-    card.setPointerCapture(cardDrag.pointerId);
+    document.documentElement.setPointerCapture(
+      pointerId
+    );
   } catch (error) {
-    /* capture unsupported; move events still reach the card */
+    /* capture unsupported; window-level listeners still work */
   }
 }
 
-function cancelCardDrag() {
+function finishCardDrag() {
   if (!cardDrag) {
     return;
   }
@@ -1392,12 +1315,166 @@ function cancelCardDrag() {
 
   if (cardDrag.lifted) {
     cardDrag.card.classList.remove("dragging");
-    cardDragCompleted = true;
+    suppressNextClick = true;
     persistLibraryOrder();
   }
 
   cardDrag = null;
 }
+
+/*
+ * Window-level drag plumbing, shared by the library grid and the
+ * setlist. Listening here (instead of on the dragged element) keeps
+ * the stream of move/up events alive across the DOM re-insertions
+ * that the live reorder performs.
+ */
+
+window.addEventListener(
+  "pointermove",
+  event => {
+    if (
+      cardDrag &&
+      event.pointerId === cardDrag.pointerId
+    ) {
+      if (!cardDrag.lifted) {
+        const moved =
+          Math.hypot(
+            event.clientX - cardDrag.startX,
+            event.clientY - cardDrag.startY
+          );
+
+        if (event.pointerType === "mouse") {
+          if (moved > 6) {
+            liftCard(cardDrag.card);
+          }
+        } else if (moved > 10) {
+          /* The finger slid before the hold finished: a scroll. */
+          finishCardDrag();
+        }
+
+        if (!cardDrag || !cardDrag.lifted) {
+          return;
+        }
+      }
+
+      reorderAgainstPoint(
+        songGrid,
+        ".song-card",
+        cardDrag.card,
+        event.clientX,
+        event.clientY
+      );
+
+      return;
+    }
+
+    if (
+      setlistDrag &&
+      event.pointerId === setlistDrag.pointerId
+    ) {
+      if (
+        reorderAgainstPoint(
+          setlistItems,
+          ".setlist-item",
+          setlistDrag.row,
+          event.clientX,
+          event.clientY
+        )
+      ) {
+        renumberSetlistRows();
+      }
+    }
+  }
+);
+
+window.addEventListener(
+  "pointerup",
+  event => {
+    if (
+      cardDrag &&
+      event.pointerId === cardDrag.pointerId
+    ) {
+      finishCardDrag();
+    }
+
+    if (
+      setlistDrag &&
+      event.pointerId === setlistDrag.pointerId
+    ) {
+      finishSetlistDrag();
+    }
+  }
+);
+
+window.addEventListener(
+  "pointercancel",
+  event => {
+    if (
+      cardDrag &&
+      event.pointerId === cardDrag.pointerId
+    ) {
+      finishCardDrag();
+    }
+
+    if (
+      setlistDrag &&
+      event.pointerId === setlistDrag.pointerId
+    ) {
+      finishSetlistDrag();
+    }
+  }
+);
+
+/* Safety net: drop any drag if the app loses focus mid-drag. */
+window.addEventListener(
+  "blur",
+  () => {
+    finishCardDrag();
+    finishSetlistDrag();
+  }
+);
+
+/* Keep the page from scrolling while something is lifted. */
+window.addEventListener(
+  "touchmove",
+  event => {
+    if (cardDrag?.lifted || setlistDrag) {
+      event.preventDefault();
+    }
+  },
+  {
+    passive: false
+  }
+);
+
+/*
+ * A finished drag produces a click (wherever the pointer was
+ * released); swallow exactly that one so it cannot open a song or
+ * press a button. Capture phase runs before any other handler. A
+ * touch drag may produce no click at all, so any stale suppression
+ * is cleared when the next interaction starts.
+ */
+window.addEventListener(
+  "pointerdown",
+  () => {
+    suppressNextClick = false;
+  }
+);
+
+window.addEventListener(
+  "click",
+  event => {
+    if (suppressNextClick) {
+      suppressNextClick = false;
+
+      event.stopPropagation();
+      event.preventDefault();
+    }
+  },
+  {
+    capture: true
+  }
+);
 
 /*
  * Live reorder shared by the library grid and the setlist: move the
@@ -1823,7 +1900,11 @@ function attachSetlistDrag(row, handle) {
   handle.addEventListener(
     "pointerdown",
     event => {
-      if (setlistDrag || event.button !== 0) {
+      if (
+        setlistDrag ||
+        cardDrag ||
+        event.button !== 0
+      ) {
         return;
       }
 
@@ -1836,61 +1917,21 @@ function attachSetlistDrag(row, handle) {
 
       row.classList.add("dragging");
 
-      try {
-        handle.setPointerCapture(
-          event.pointerId
-        );
-      } catch (error) {
-        /* capture unsupported */
-      }
+      capturePointerForDrag(event.pointerId);
     }
   );
+}
 
-  handle.addEventListener(
-    "pointermove",
-    event => {
-      if (
-        !setlistDrag ||
-        setlistDrag.row !== row ||
-        event.pointerId !== setlistDrag.pointerId
-      ) {
-        return;
-      }
+function finishSetlistDrag() {
+  if (!setlistDrag) {
+    return;
+  }
 
-      if (
-        reorderAgainstPoint(
-          setlistItems,
-          ".setlist-item",
-          row,
-          event.clientX,
-          event.clientY
-        )
-      ) {
-        renumberSetlistRows();
-      }
-    }
-  );
+  setlistDrag.row.classList.remove("dragging");
+  setlistDrag = null;
 
-  const finishSetlistDrag = () => {
-    if (!setlistDrag || setlistDrag.row !== row) {
-      return;
-    }
-
-    row.classList.remove("dragging");
-    setlistDrag = null;
-
-    persistSetlistOrder();
-  };
-
-  handle.addEventListener(
-    "pointerup",
-    finishSetlistDrag
-  );
-
-  handle.addEventListener(
-    "pointercancel",
-    finishSetlistDrag
-  );
+  suppressNextClick = true;
+  persistSetlistOrder();
 }
 
 function renumberSetlistRows() {
