@@ -114,6 +114,14 @@ body {
 
 body {
   overscroll-behavior: none;
+
+  /*
+   * iOS paints its own grey tap overlay at the touched element's
+   * original bounds and does not track the element when a drag-
+   * reorder moves it, leaving a dark ghost at the start slot. The
+   * app has its own pressed/dragging styles, so drop the overlay.
+   */
+  -webkit-tap-highlight-color: transparent;
 }
 
 button,
@@ -658,6 +666,21 @@ h3 {
   opacity: 0.92;
   z-index: 5;
   border-color: var(--border-strong);
+}
+
+/*
+ * While a card is lifted, keep the others still: without this the
+ * cards passed over light up with their hover/active styles, which
+ * reads as ghost highlights during the drag.
+ */
+.song-grid:has(.song-card.dragging) .song-card:not(.dragging) {
+  transform: none;
+  box-shadow: var(--shadow-1);
+  border-color: var(--border);
+}
+
+.song-grid:has(.song-card.dragging) .song-card:not(.dragging)::before {
+  opacity: 0;
 }
 
 /*
