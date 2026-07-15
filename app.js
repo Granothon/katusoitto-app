@@ -129,10 +129,28 @@ let swipeStartY = 0;
 let lastPdfTapTime = 0;
 
 let renamingSongId = null;
-let longPressTimer = null;
-let longPressFired = false;
-let longPressStartX = 0;
-let longPressStartY = 0;
+
+/*
+ * Drag-reorder state. Library cards lift on a still half-second hold
+ * (touch) or on drag movement (mouse); setlist rows lift instantly
+ * from their ≡ handle. cardDragCompleted swallows the click event a
+ * finished drag produces.
+ */
+let cardDrag = null;
+let cardDragCompleted = false;
+let setlistDrag = null;
+
+/*
+ * Setlist & gig state. setlist holds song ids in play order;
+ * gigIndex is the current position of an active gig (null = no gig);
+ * gigSongOpen marks that the open player song was opened via the gig,
+ * so the next-song button advances the setlist.
+ */
+const SETLIST_STORAGE_KEY = "katusoitto-setlist";
+
+let setlist = [];
+let gigIndex = null;
+let gigSongOpen = false;
 
 let pendingImport = {
   pdf: null,
@@ -257,6 +275,40 @@ const renameInput =
 const renameCancelButton =
   document.querySelector("#renameCancelButton");
 
+/*
+ * Setlist & gig
+ */
+
+const setlistView =
+  document.querySelector("#setlistView");
+
+const setlistButton =
+  document.querySelector("#setlistButton");
+
+const setlistBackButton =
+  document.querySelector("#setlistBackButton");
+
+const setlistSummary =
+  document.querySelector("#setlistSummary");
+
+const startGigButton =
+  document.querySelector("#startGigButton");
+
+const resumeGigButton =
+  document.querySelector("#resumeGigButton");
+
+const endGigButton =
+  document.querySelector("#endGigButton");
+
+const setlistItems =
+  document.querySelector("#setlistItems");
+
+const setlistCandidates =
+  document.querySelector("#setlistCandidates");
+
+const gigIndicator =
+  document.querySelector("#gigIndicator");
+
 const toast =
   document.querySelector("#toast");
 
@@ -326,6 +378,24 @@ async function getAllSongs() {
       const result =
         request.result.sort(
           (a, b) => {
+            /*
+             * Manual library order when present; songs from before
+             * the order field fall back to creation time.
+             */
+            const orderA =
+              Number.isFinite(a.order)
+                ? a.order
+                : Number.MAX_SAFE_INTEGER;
+
+            const orderB =
+              Number.isFinite(b.order)
+                ? b.order
+                : Number.MAX_SAFE_INTEGER;
+
+            if (orderA !== orderB) {
+              return orderA - orderB;
+            }
+
             return a.createdAt.localeCompare(
               b.createdAt
             );
@@ -339,6 +409,20 @@ async function getAllSongs() {
       reject(request.error);
     };
   });
+}
+
+/*
+ * Normalise library order to 0..n-1. Migrates songs from before the
+ * order field (assigned by their creation-time position) and heals
+ * any gaps left by deletions.
+ */
+async function ensureSongOrder() {
+  for (let i = 0; i < songs.length; i++) {
+    if (songs[i].order !== i) {
+      songs[i].order = i;
+      await saveSong(songs[i]);
+    }
+  }
 }
 
 async function saveSong(song) {
@@ -580,6 +664,9 @@ async function createSongFromPendingFiles() {
 
       createdAt:
         new Date().toISOString(),
+
+      /* New songs go to the end of the library. */
+      order: songs.length,
 
       pdf: {
         name: pdfFile.name,
@@ -856,6 +943,7 @@ async function exportLibrary() {
         id: song.id,
         title: song.title,
         createdAt: song.createdAt,
+        order: song.order,
         pdf: {
           name: song.pdf.name,
           pageCount: song.pdf.pageCount,
@@ -949,6 +1037,11 @@ async function importLibrary(file) {
         createdAt:
           entry.createdAt ||
           new Date().toISOString(),
+        /*
+         * Imported songs append to the end of the library in backup
+         * order (entry.order could collide with existing songs).
+         */
+        order: songs.length + imported,
         pdf: {
           name:
             entry.pdf.name || "score.pdf",
@@ -1060,6 +1153,15 @@ function renderLibrary() {
       </span>
 
       <span
+        class="rename-song-button"
+        role="button"
+        aria-label="Rename song"
+        title="Rename song"
+      >
+        ✎
+      </span>
+
+      <span
         class="delete-song-button"
         role="button"
         aria-label="Delete song"
@@ -1069,27 +1171,40 @@ function renderLibrary() {
       </span>
     `;
 
+    card.dataset.songId = song.id;
+
     card.addEventListener(
       "click",
       event => {
         /*
-         * A long-press already opened the rename dialog; swallow the
-         * click it produces so the song does not also open.
+         * A drag-reorder just ended; swallow the click it produces so
+         * the song does not also open.
          */
-        if (longPressFired) {
-          longPressFired = false;
+        if (cardDragCompleted) {
+          cardDragCompleted = false;
           return;
         }
 
-        const deleteButton =
+        if (
           event.target.closest(
             ".delete-song-button"
-          );
-
-        if (deleteButton) {
+          )
+        ) {
           event.stopPropagation();
 
           deleteSong(song);
+
+          return;
+        }
+
+        if (
+          event.target.closest(
+            ".rename-song-button"
+          )
+        ) {
+          event.stopPropagation();
+
+          openRename(song.id);
 
           return;
         }
@@ -1098,14 +1213,14 @@ function renderLibrary() {
       }
     );
 
-    /*
-     * Rename: right-click on desktop, long-press on a tablet.
-     * (Not on the delete button.)
-     */
+    /* Right-click rename stays as a desktop shortcut. */
     card.addEventListener(
       "contextmenu",
       event => {
-        if (event.target.closest(".delete-song-button")) {
+        if (
+          event.target.closest(".delete-song-button") ||
+          event.target.closest(".rename-song-button")
+        ) {
           return;
         }
 
@@ -1114,76 +1229,247 @@ function renderLibrary() {
       }
     );
 
-    card.addEventListener(
-      "touchstart",
-      event => {
-        if (
-          event.touches.length !== 1 ||
-          event.target.closest(".delete-song-button")
-        ) {
-          return;
-        }
-
-        longPressFired = false;
-        longPressStartX = event.touches[0].clientX;
-        longPressStartY = event.touches[0].clientY;
-
-        clearTimeout(longPressTimer);
-
-        longPressTimer =
-          setTimeout(() => {
-            longPressFired = true;
-            openRename(song.id);
-          }, 500);
-      },
-      {
-        passive: true
-      }
-    );
-
-    card.addEventListener(
-      "touchmove",
-      event => {
-        if (event.touches.length !== 1) {
-          return;
-        }
-
-        const dx =
-          event.touches[0].clientX - longPressStartX;
-
-        const dy =
-          event.touches[0].clientY - longPressStartY;
-
-        if (
-          Math.abs(dx) > 10 ||
-          Math.abs(dy) > 10
-        ) {
-          clearTimeout(longPressTimer);
-        }
-      },
-      {
-        passive: true
-      }
-    );
-
-    card.addEventListener(
-      "touchend",
-      () => {
-        clearTimeout(longPressTimer);
-      }
-    );
-
-    card.addEventListener(
-      "touchcancel",
-      () => {
-        clearTimeout(longPressTimer);
-      }
-    );
+    attachCardDrag(card);
 
     songGrid.appendChild(
       card
     );
   }
+
+  /* The setlist view mirrors the library (titles, candidates). */
+  renderSetlist();
+}
+
+/*
+ * Drag-reorder: library grid
+ *
+ * Touch: a still ~half-second hold lifts the card, then dragging
+ * moves it (moving early is a scroll and cancels the hold). Mouse:
+ * dragging past a small threshold lifts it, so a plain click still
+ * opens the song.
+ */
+
+function attachCardDrag(card) {
+  card.addEventListener(
+    "pointerdown",
+    event => {
+      if (
+        cardDrag ||
+        event.button !== 0 ||
+        event.target.closest(".delete-song-button") ||
+        event.target.closest(".rename-song-button")
+      ) {
+        return;
+      }
+
+      cardDrag = {
+        card,
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        lifted: false,
+        holdTimer: null
+      };
+
+      if (event.pointerType !== "mouse") {
+        cardDrag.holdTimer =
+          setTimeout(() => {
+            liftCard(card);
+          }, 450);
+      }
+    }
+  );
+
+  card.addEventListener(
+    "pointermove",
+    event => {
+      if (
+        !cardDrag ||
+        cardDrag.card !== card ||
+        event.pointerId !== cardDrag.pointerId
+      ) {
+        return;
+      }
+
+      if (!cardDrag.lifted) {
+        const moved =
+          Math.hypot(
+            event.clientX - cardDrag.startX,
+            event.clientY - cardDrag.startY
+          );
+
+        if (event.pointerType === "mouse") {
+          if (moved > 6) {
+            liftCard(card);
+          }
+        } else if (moved > 10) {
+          /* The finger slid before the hold finished: a scroll. */
+          cancelCardDrag();
+        }
+
+        if (!cardDrag || !cardDrag.lifted) {
+          return;
+        }
+      }
+
+      reorderAgainstPoint(
+        songGrid,
+        ".song-card",
+        card,
+        event.clientX,
+        event.clientY
+      );
+    }
+  );
+
+  card.addEventListener(
+    "pointerup",
+    event => {
+      if (
+        !cardDrag ||
+        cardDrag.card !== card ||
+        event.pointerId !== cardDrag.pointerId
+      ) {
+        return;
+      }
+
+      clearTimeout(cardDrag.holdTimer);
+
+      if (cardDrag.lifted) {
+        card.classList.remove("dragging");
+        cardDragCompleted = true;
+        persistLibraryOrder();
+      }
+
+      cardDrag = null;
+    }
+  );
+
+  card.addEventListener(
+    "pointercancel",
+    () => {
+      cancelCardDrag();
+    }
+  );
+
+  /* Keep the page from scrolling while a card is lifted. */
+  card.addEventListener(
+    "touchmove",
+    event => {
+      if (cardDrag?.lifted && cardDrag.card === card) {
+        event.preventDefault();
+      }
+    },
+    {
+      passive: false
+    }
+  );
+}
+
+function liftCard(card) {
+  if (!cardDrag || cardDrag.lifted) {
+    return;
+  }
+
+  clearTimeout(cardDrag.holdTimer);
+
+  cardDrag.lifted = true;
+  card.classList.add("dragging");
+
+  try {
+    card.setPointerCapture(cardDrag.pointerId);
+  } catch (error) {
+    /* capture unsupported; move events still reach the card */
+  }
+}
+
+function cancelCardDrag() {
+  if (!cardDrag) {
+    return;
+  }
+
+  clearTimeout(cardDrag.holdTimer);
+
+  if (cardDrag.lifted) {
+    cardDrag.card.classList.remove("dragging");
+    cardDragCompleted = true;
+    persistLibraryOrder();
+  }
+
+  cardDrag = null;
+}
+
+/*
+ * Live reorder shared by the library grid and the setlist: move the
+ * dragged element to the other side of whichever sibling is under
+ * the pointer, so the layout reflows under the finger.
+ */
+function reorderAgainstPoint(
+  container,
+  selector,
+  dragged,
+  x,
+  y
+) {
+  const under =
+    document.elementFromPoint(x, y);
+
+  const target =
+    under?.closest(selector);
+
+  if (
+    !target ||
+    target === dragged ||
+    target.parentElement !== container
+  ) {
+    return false;
+  }
+
+  const position =
+    dragged.compareDocumentPosition(target);
+
+  if (position & Node.DOCUMENT_POSITION_FOLLOWING) {
+    container.insertBefore(
+      dragged,
+      target.nextSibling
+    );
+  } else {
+    container.insertBefore(
+      dragged,
+      target
+    );
+  }
+
+  return true;
+}
+
+async function persistLibraryOrder() {
+  const orderedIds = [
+    ...songGrid.querySelectorAll(".song-card")
+  ].map(card => card.dataset.songId);
+
+  const reordered =
+    orderedIds
+      .map(id => {
+        return songs.find(song => song.id === id);
+      })
+      .filter(Boolean);
+
+  if (reordered.length !== songs.length) {
+    return;
+  }
+
+  songs = reordered;
+
+  for (let i = 0; i < songs.length; i++) {
+    if (songs[i].order !== i) {
+      songs[i].order = i;
+      await saveSong(songs[i]);
+    }
+  }
+
+  /* Candidate order in the setlist view follows the library. */
+  renderSetlist();
 }
 
 async function deleteSong(song) {
@@ -1213,6 +1499,552 @@ async function deleteSong(song) {
   showToast(
     "Song deleted from the library."
   );
+}
+
+/*
+ * Setlist
+ *
+ * One ordered list of song ids, kept in localStorage together with
+ * the gig position so a gig survives closing the app.
+ */
+
+function saveSetlistState() {
+  try {
+    localStorage.setItem(
+      SETLIST_STORAGE_KEY,
+      JSON.stringify({
+        songIds: setlist,
+        gigIndex
+      })
+    );
+  } catch (error) {
+    console.warn(
+      "Could not save the setlist:",
+      error
+    );
+  }
+
+  updateSetlistButton();
+}
+
+function loadSetlistState() {
+  try {
+    const raw =
+      localStorage.getItem(
+        SETLIST_STORAGE_KEY
+      );
+
+    if (!raw) {
+      return;
+    }
+
+    const parsed = JSON.parse(raw);
+
+    if (Array.isArray(parsed?.songIds)) {
+      setlist =
+        parsed.songIds.filter(id => {
+          return typeof id === "string";
+        });
+    }
+
+    gigIndex =
+      Number.isInteger(parsed?.gigIndex)
+        ? parsed.gigIndex
+        : null;
+  } catch (error) {
+    console.warn(
+      "Could not load the setlist:",
+      error
+    );
+  }
+}
+
+/*
+ * Drop songs that no longer exist and keep the gig position on the
+ * same song (or clamped) after changes.
+ */
+function pruneSetlist() {
+  const gigSongId =
+    gigIndex !== null
+      ? setlist[gigIndex]
+      : null;
+
+  setlist =
+    setlist.filter(id => {
+      return songs.some(song => song.id === id);
+    });
+
+  if (gigIndex !== null) {
+    if (setlist.length === 0) {
+      gigIndex = null;
+    } else {
+      const restored =
+        gigSongId
+          ? setlist.indexOf(gigSongId)
+          : -1;
+
+      gigIndex =
+        restored !== -1
+          ? restored
+          : Math.min(gigIndex, setlist.length - 1);
+    }
+  }
+
+  saveSetlistState();
+}
+
+function updateSetlistButton() {
+  setlistButton.textContent =
+    gigIndex !== null
+      ? `Setlist · ${gigIndex + 1}/${setlist.length}`
+      : "Setlist";
+}
+
+function renderSetlist() {
+  if (
+    setlist.some(id => {
+      return !songs.some(song => song.id === id);
+    })
+  ) {
+    pruneSetlist();
+  }
+
+  updateSetlistButton();
+
+  setlistSummary.textContent =
+    `${setlist.length} ${
+      setlist.length === 1
+        ? "song"
+        : "songs"
+    }`;
+
+  const gigActive = gigIndex !== null;
+
+  startGigButton.classList.toggle(
+    "hidden",
+    gigActive
+  );
+
+  startGigButton.disabled =
+    setlist.length === 0;
+
+  resumeGigButton.classList.toggle(
+    "hidden",
+    !gigActive
+  );
+
+  endGigButton.classList.toggle(
+    "hidden",
+    !gigActive
+  );
+
+  if (gigActive) {
+    resumeGigButton.textContent =
+      `Resume gig — ${gigIndex + 1} / ${setlist.length}`;
+  }
+
+  /* Ordered rows */
+
+  setlistItems.innerHTML = "";
+
+  if (setlist.length === 0) {
+    const empty =
+      document.createElement("p");
+
+    empty.className = "setlist-empty";
+    empty.textContent =
+      "No songs yet — add songs below.";
+
+    setlistItems.appendChild(empty);
+  }
+
+  setlist.forEach((id, index) => {
+    const song =
+      songs.find(item => item.id === id);
+
+    if (!song) {
+      return;
+    }
+
+    const row =
+      document.createElement("div");
+
+    row.className = "setlist-item";
+    row.dataset.songId = id;
+
+    if (gigIndex === index) {
+      row.classList.add("current");
+    }
+
+    const handle =
+      document.createElement("span");
+
+    handle.className = "setlist-handle";
+    handle.title = "Drag to reorder";
+    handle.setAttribute(
+      "aria-label",
+      "Drag to reorder"
+    );
+    handle.textContent = "≡";
+
+    const number =
+      document.createElement("span");
+
+    number.className = "setlist-index";
+    number.textContent = `${index + 1}.`;
+
+    const title =
+      document.createElement("span");
+
+    title.className = "setlist-title";
+    title.textContent = song.title;
+
+    const remove =
+      document.createElement("button");
+
+    remove.className = "setlist-remove";
+    remove.type = "button";
+    remove.title = "Remove from setlist";
+    remove.setAttribute(
+      "aria-label",
+      "Remove from setlist"
+    );
+    remove.textContent = "✕";
+
+    remove.addEventListener(
+      "click",
+      () => {
+        removeFromSetlist(index);
+      }
+    );
+
+    attachSetlistDrag(row, handle);
+
+    row.append(
+      handle,
+      number,
+      title,
+      remove
+    );
+
+    setlistItems.appendChild(row);
+  });
+
+  /* Songs not yet on the list */
+
+  setlistCandidates.innerHTML = "";
+
+  const remaining =
+    songs.filter(song => {
+      return !setlist.includes(song.id);
+    });
+
+  if (remaining.length === 0) {
+    const empty =
+      document.createElement("p");
+
+    empty.className = "setlist-empty";
+    empty.textContent =
+      songs.length === 0
+        ? "The library is empty."
+        : "All library songs are on the setlist.";
+
+    setlistCandidates.appendChild(empty);
+
+    return;
+  }
+
+  for (const song of remaining) {
+    const button =
+      document.createElement("button");
+
+    button.className = "setlist-candidate";
+    button.type = "button";
+
+    const plus =
+      document.createElement("span");
+
+    plus.className = "setlist-candidate-plus";
+    plus.textContent = "+";
+
+    const label =
+      document.createElement("span");
+
+    label.className = "setlist-candidate-title";
+    label.textContent = song.title;
+
+    button.append(plus, label);
+
+    button.addEventListener(
+      "click",
+      () => {
+        setlist.push(song.id);
+        saveSetlistState();
+        renderSetlist();
+      }
+    );
+
+    setlistCandidates.appendChild(button);
+  }
+}
+
+function removeFromSetlist(index) {
+  const gigSongId =
+    gigIndex !== null
+      ? setlist[gigIndex]
+      : null;
+
+  const removingCurrent =
+    gigIndex === index;
+
+  setlist.splice(index, 1);
+
+  if (gigIndex !== null) {
+    if (setlist.length === 0) {
+      gigIndex = null;
+    } else if (removingCurrent) {
+      gigIndex =
+        Math.min(index, setlist.length - 1);
+    } else {
+      gigIndex =
+        setlist.indexOf(gigSongId);
+    }
+  }
+
+  saveSetlistState();
+  renderSetlist();
+}
+
+/*
+ * Drag-reorder: setlist rows lift instantly from their ≡ handle.
+ * The handle has touch-action: none, so no scroll wrangling needed.
+ */
+function attachSetlistDrag(row, handle) {
+  handle.addEventListener(
+    "pointerdown",
+    event => {
+      if (setlistDrag || event.button !== 0) {
+        return;
+      }
+
+      event.preventDefault();
+
+      setlistDrag = {
+        row,
+        pointerId: event.pointerId
+      };
+
+      row.classList.add("dragging");
+
+      try {
+        handle.setPointerCapture(
+          event.pointerId
+        );
+      } catch (error) {
+        /* capture unsupported */
+      }
+    }
+  );
+
+  handle.addEventListener(
+    "pointermove",
+    event => {
+      if (
+        !setlistDrag ||
+        setlistDrag.row !== row ||
+        event.pointerId !== setlistDrag.pointerId
+      ) {
+        return;
+      }
+
+      if (
+        reorderAgainstPoint(
+          setlistItems,
+          ".setlist-item",
+          row,
+          event.clientX,
+          event.clientY
+        )
+      ) {
+        renumberSetlistRows();
+      }
+    }
+  );
+
+  const finishSetlistDrag = () => {
+    if (!setlistDrag || setlistDrag.row !== row) {
+      return;
+    }
+
+    row.classList.remove("dragging");
+    setlistDrag = null;
+
+    persistSetlistOrder();
+  };
+
+  handle.addEventListener(
+    "pointerup",
+    finishSetlistDrag
+  );
+
+  handle.addEventListener(
+    "pointercancel",
+    finishSetlistDrag
+  );
+}
+
+function renumberSetlistRows() {
+  const rows =
+    setlistItems.querySelectorAll(
+      ".setlist-item"
+    );
+
+  rows.forEach((row, index) => {
+    row.querySelector(
+      ".setlist-index"
+    ).textContent = `${index + 1}.`;
+  });
+}
+
+function persistSetlistOrder() {
+  const gigSongId =
+    gigIndex !== null
+      ? setlist[gigIndex]
+      : null;
+
+  setlist = [
+    ...setlistItems.querySelectorAll(
+      ".setlist-item"
+    )
+  ].map(row => row.dataset.songId);
+
+  if (gigSongId) {
+    const restored =
+      setlist.indexOf(gigSongId);
+
+    gigIndex =
+      restored !== -1
+        ? restored
+        : null;
+  }
+
+  saveSetlistState();
+  renderSetlist();
+}
+
+/*
+ * Setlist view switching
+ */
+
+function openSetlistView() {
+  renderSetlist();
+
+  libraryView.classList.add("hidden");
+  setlistView.classList.remove("hidden");
+}
+
+function closeSetlistView() {
+  setlistView.classList.add("hidden");
+  libraryView.classList.remove("hidden");
+}
+
+/*
+ * Gig mode
+ */
+
+async function startGig() {
+  if (setlist.length === 0) {
+    return;
+  }
+
+  gigIndex = 0;
+  saveSetlistState();
+
+  await openGigSong();
+}
+
+async function resumeGig() {
+  if (gigIndex === null) {
+    return;
+  }
+
+  await openGigSong();
+}
+
+function endGig() {
+  if (gigIndex === null) {
+    return;
+  }
+
+  const accepted =
+    confirm(
+      "End the gig? The setlist keeps its songs."
+    );
+
+  if (!accepted) {
+    return;
+  }
+
+  gigIndex = null;
+  gigSongOpen = false;
+
+  saveSetlistState();
+  renderSetlist();
+}
+
+async function openGigSong() {
+  const id = setlist[gigIndex];
+
+  if (!id) {
+    return;
+  }
+
+  await openSong(id, true);
+}
+
+async function gigNextSong() {
+  if (
+    gigIndex === null ||
+    gigIndex >= setlist.length - 1
+  ) {
+    return;
+  }
+
+  gigIndex++;
+  saveSetlistState();
+
+  await openGigSong();
+}
+
+/*
+ * The gig position indicator in the player header; also gates the
+ * next-song button at the end of the setlist.
+ */
+function updateGigIndicator() {
+  if (!gigSongOpen || gigIndex === null) {
+    gigIndicator.classList.add("hidden");
+
+    nextSongButton.disabled = false;
+    nextSongButton.title = "Next song";
+
+    return;
+  }
+
+  const last =
+    gigIndex >= setlist.length - 1;
+
+  gigIndicator.textContent =
+    `Gig ${gigIndex + 1} / ${setlist.length}` +
+    (last ? " · last song" : "");
+
+  gigIndicator.classList.remove("hidden");
+
+  nextSongButton.disabled = last;
+
+  nextSongButton.title =
+    last
+      ? "Last song of the gig"
+      : "Next song in the setlist";
 }
 
 /*
@@ -1400,7 +2232,7 @@ function resetPdfZoomState() {
  * Opening a song
  */
 
-async function openSong(id) {
+async function openSong(id, viaGig = false) {
   const nextSong =
     songs.find(song => {
       return song.id === id;
@@ -1409,6 +2241,8 @@ async function openSong(id) {
   if (!nextSong) {
     return;
   }
+
+  gigSongOpen = viaGig;
 
   resetCurrentPlayback();
   resetPdfZoomState();
@@ -1451,9 +2285,15 @@ async function openSong(id) {
     "hidden"
   );
 
+  setlistView.classList.add(
+    "hidden"
+  );
+
   playerView.classList.remove(
     "hidden"
   );
+
+  updateGigIndicator();
 
   currentTempo =
     clampTempo(
@@ -2637,6 +3477,10 @@ function closePlayer() {
   resetCurrentPlayback();
   resetPdfZoomState();
 
+  /* Leaving the player pauses the gig; its position is kept. */
+  gigSongOpen = false;
+  updateGigIndicator();
+
   libraryView.classList.remove(
     "hidden"
   );
@@ -2861,7 +3705,42 @@ restartButton.addEventListener(
 
 nextSongButton.addEventListener(
   "click",
-  openNextSong
+  () => {
+    if (gigSongOpen && gigIndex !== null) {
+      gigNextSong();
+    } else {
+      openNextSong();
+    }
+  }
+);
+
+/*
+ * Setlist & gig buttons
+ */
+
+setlistButton.addEventListener(
+  "click",
+  openSetlistView
+);
+
+setlistBackButton.addEventListener(
+  "click",
+  closeSetlistView
+);
+
+startGigButton.addEventListener(
+  "click",
+  startGig
+);
+
+resumeGigButton.addEventListener(
+  "click",
+  resumeGig
+);
+
+endGigButton.addEventListener(
+  "click",
+  endGig
 );
 
 previousPageButton.addEventListener(
@@ -3293,6 +4172,15 @@ const PREVIOUS_PAGE_KEYS = new Set([
 window.addEventListener(
   "keydown",
   event => {
+    if (
+      !setlistView.classList.contains("hidden") &&
+      event.key === "Escape"
+    ) {
+      event.preventDefault();
+      closeSetlistView();
+      return;
+    }
+
     if (playerView.classList.contains("hidden")) {
       return;
     }
@@ -3471,6 +4359,11 @@ async function initialize() {
 
     songs =
       await getAllSongs();
+
+    await ensureSongOrder();
+
+    loadSetlistState();
+    pruneSetlist();
 
     await ensurePdfPageCounts();
 

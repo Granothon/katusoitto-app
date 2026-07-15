@@ -134,6 +134,15 @@
             <span id="songCount">0 songs</span>
 
             <button
+              id="setlistButton"
+              class="tool-button"
+              type="button"
+              title="Open the setlist"
+            >
+              Setlist
+            </button>
+
+            <button
               id="importButton"
               class="tool-button"
               type="button"
@@ -178,6 +187,71 @@
       </section>
     </section>
 
+    <!-- Setlist & gig -->
+    <section
+      id="setlistView"
+      class="view hidden"
+    >
+      <header class="main-header">
+        <div>
+          <h1>Setlist</h1>
+          <p id="setlistSummary">0 songs</p>
+        </div>
+
+        <button
+          id="setlistBackButton"
+          class="icon-button"
+          type="button"
+          aria-label="Back to library"
+          title="Back to library"
+        >
+          ← Library
+        </button>
+      </header>
+
+      <div class="gig-controls">
+        <button
+          id="startGigButton"
+          class="primary-button full-width"
+          type="button"
+        >
+          Start gig
+        </button>
+
+        <button
+          id="resumeGigButton"
+          class="primary-button full-width hidden"
+          type="button"
+        >
+          Resume gig
+        </button>
+
+        <button
+          id="endGigButton"
+          class="danger-button full-width hidden"
+          type="button"
+        >
+          End gig
+        </button>
+      </div>
+
+      <div
+        id="setlistItems"
+        class="setlist-items"
+      ></div>
+
+      <section class="setlist-add">
+        <div class="section-heading">
+          <h2>Add songs</h2>
+        </div>
+
+        <div
+          id="setlistCandidates"
+          class="setlist-candidates"
+        ></div>
+      </section>
+    </section>
+
     <!-- Sheet music & player -->
     <section
       id="playerView"
@@ -204,6 +278,13 @@
             class="hidden"
           >
             Page 1 / 1
+          </span>
+
+          <span
+            id="gigIndicator"
+            class="hidden"
+          >
+            Gig 1 / 1
           </span>
         </div>
 

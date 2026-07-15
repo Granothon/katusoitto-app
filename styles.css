@@ -579,7 +579,7 @@ h3 {
 
 .song-card-title {
   display: block;
-  padding-right: 40px;
+  padding-right: 92px;
 
   font-size: 1.3rem;
   font-weight: 700;
@@ -612,7 +612,8 @@ h3 {
   flex: none;
 }
 
-.delete-song-button {
+.delete-song-button,
+.rename-song-button {
   position: absolute;
   top: 12px;
   right: 12px;
@@ -636,9 +637,201 @@ h3 {
     color 120ms ease;
 }
 
+.rename-song-button {
+  right: 54px;
+}
+
 .delete-song-button:hover {
   background: color-mix(in srgb, var(--danger) 16%, transparent);
   color: var(--danger);
+}
+
+.rename-song-button:hover {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--accent-strong);
+}
+
+/* A lifted card during drag-reorder */
+.song-card.dragging {
+  transform: scale(1.03);
+  box-shadow: var(--shadow-2);
+  opacity: 0.92;
+  z-index: 5;
+  border-color: var(--border-strong);
+}
+
+/*
+ * Setlist & gig
+ */
+
+#setlistView {
+  max-width: 760px;
+  margin: 0 auto;
+
+  padding:
+    max(24px, env(safe-area-inset-top))
+    clamp(16px, 4vw, 28px)
+    max(48px, env(safe-area-inset-bottom));
+}
+
+.gig-controls {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 28px;
+}
+
+.setlist-items {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 36px;
+}
+
+.setlist-empty {
+  margin: 0;
+  color: var(--muted);
+}
+
+.setlist-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+
+  padding: 6px 8px;
+
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.setlist-item.current {
+  border-color: var(--accent);
+}
+
+.setlist-item.current .setlist-index {
+  color: var(--accent-strong);
+  font-weight: 700;
+}
+
+.setlist-item.dragging {
+  transform: scale(1.02);
+  box-shadow: var(--shadow-2);
+  opacity: 0.92;
+  border-color: var(--border-strong);
+}
+
+.setlist-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  width: 44px;
+  height: 44px;
+  flex: none;
+
+  color: var(--muted);
+  font-size: 1.3rem;
+
+  cursor: grab;
+  touch-action: none;
+}
+
+.setlist-item.dragging .setlist-handle {
+  cursor: grabbing;
+}
+
+.setlist-index {
+  min-width: 2.2ch;
+  flex: none;
+
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.setlist-title {
+  flex: 1;
+  min-width: 0;
+  padding: 0 10px;
+
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.setlist-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  width: 40px;
+  height: 40px;
+  flex: none;
+
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+
+  font-size: 1rem;
+}
+
+.setlist-remove:hover {
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+  color: var(--danger);
+}
+
+.setlist-add .section-heading {
+  margin-bottom: 14px;
+}
+
+.setlist-candidates {
+  display: grid;
+  gap: 8px;
+}
+
+.setlist-candidate {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+
+  border: 1px dashed var(--border);
+  border-radius: 14px;
+  background: transparent;
+  color: var(--text);
+
+  padding: 12px 16px;
+  text-align: left;
+
+  font-size: 1rem;
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease;
+}
+
+.setlist-candidate:hover {
+  border-style: solid;
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.setlist-candidate-plus {
+  flex: none;
+  color: var(--accent-strong);
+  font-weight: 700;
+  font-size: 1.15rem;
+}
+
+.setlist-candidate-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
 }
 
 .empty-state {
