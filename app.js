@@ -1266,7 +1266,13 @@ function attachCardDrag(card) {
         startY: event.clientY,
         lifted: false,
         holdTimer: null,
-        lockX: false
+        lockX: false,
+        /*
+         * Grid cards shrink to a compact ghost under the finger so
+         * they never fully cover the card being hovered.
+         */
+        ghost: true,
+        scale: 0.5
       };
 
       if (event.pointerType !== "mouse") {
@@ -1301,20 +1307,83 @@ function liftCard(x, y) {
  * animation, and on release the element settles into its slot.
  */
 
-function beginDragVisual(drag, x, y) {
-  const rect =
-    drag.el.getBoundingClientRect();
+/*
+ * With the drop-indicator model nothing reflows during a drag, so
+ * all geometry (container area, every sibling's box, the gap) can
+ * be measured once at lift time. The pointermove path then performs
+ * no DOM reads at all — only transform writes — which keeps the
+ * float perfectly smooth on slower hardware.
+ */
+function snapshotDragGeometry(drag) {
+  const areaRect =
+    drag.container.getBoundingClientRect();
 
-  drag.baseX = rect.left;
-  drag.baseY = rect.top;
-  drag.grabX = x - rect.left;
-  drag.grabY = y - rect.top;
-  drag.width = rect.width;
-  drag.height = rect.height;
+  drag.areaRect = areaRect;
+
+  drag.baseX =
+    areaRect.left + drag.el.offsetLeft;
+
+  drag.baseY =
+    areaRect.top + drag.el.offsetTop;
+
+  drag.width = drag.el.offsetWidth;
+  drag.height = drag.el.offsetHeight;
+
+  drag.items = [
+    ...drag.container.querySelectorAll(
+      drag.selector
+    )
+  ]
+    .filter(el => el !== drag.el)
+    .map(el => {
+      return {
+        el,
+        left: areaRect.left + el.offsetLeft,
+        top: areaRect.top + el.offsetTop,
+        width: el.offsetWidth,
+        height: el.offsetHeight,
+        offsetLeft: el.offsetLeft,
+        offsetTop: el.offsetTop
+      };
+    });
+
+  drag.gap =
+    parseFloat(
+      getComputedStyle(drag.container).gap
+    ) || 12;
+}
+
+function beginDragVisual(drag, x, y) {
+  snapshotDragGeometry(drag);
+
+  drag.grabX = x - drag.baseX;
+  drag.grabY = y - drag.baseY;
 
   /* Where the item would land if released; none yet. */
   drag.dropNode = null;
   drag.dropBefore = false;
+  drag.dropSpot = null;
+
+  /*
+   * A compact ghost leaves its slot visibly empty; mark the origin
+   * with a dashed outline so it reads as "comes from here".
+   */
+  if (drag.ghost) {
+    const style = dragPlaceholder.style;
+
+    style.left =
+      `${drag.el.offsetLeft}px`;
+
+    style.top =
+      `${drag.el.offsetTop}px`;
+
+    style.width = `${drag.width}px`;
+    style.height = `${drag.height}px`;
+
+    drag.container.appendChild(
+      dragPlaceholder
+    );
+  }
 
   drag.el.classList.add("dragging");
   drag.el.style.willChange = "transform";
@@ -1350,48 +1419,67 @@ function clampValue(value, low, high) {
  * Float the lifted element with the pointer, confined to its own
  * container (the grid / the list): items belong to their area, so
  * they cannot be carried anywhere else on the screen. The clamped
- * position also drives the reordering (via centerX/centerY), so a
- * finger that wanders outside still reorders at the pinned edge.
+ * position also drives the drop point (via centerX/centerY), so a
+ * finger that wanders outside still targets at the pinned edge.
+ *
+ * Grid cards float as a half-size ghost centred under the finger;
+ * setlist rows stay full-size and keep the grab offset, vertical
+ * only. Uses only cached geometry — no DOM reads.
  */
 function applyDragTransform(drag, x, y) {
-  const area =
-    drag.container.getBoundingClientRect();
+  const area = drag.areaRect;
 
-  const left =
-    clampValue(
-      x - drag.grabX,
-      area.left,
-      area.right - drag.width
-    );
+  let centerX;
+  let centerY;
 
-  const top =
-    clampValue(
-      y - drag.grabY,
-      area.top,
-      area.bottom - drag.height
-    );
+  if (drag.ghost) {
+    const halfWidth =
+      (drag.width * drag.scale) / 2;
+
+    const halfHeight =
+      (drag.height * drag.scale) / 2;
+
+    centerX =
+      clampValue(
+        x,
+        area.left + halfWidth,
+        area.right - halfWidth
+      );
+
+    centerY =
+      clampValue(
+        y,
+        area.top + halfHeight,
+        area.bottom - halfHeight
+      );
+  } else {
+    const top =
+      clampValue(
+        y - drag.grabY,
+        area.top,
+        area.bottom - drag.height
+      );
+
+    centerX =
+      drag.baseX + drag.width / 2;
+
+    centerY =
+      top + drag.height / 2;
+  }
 
   const dx =
-    drag.lockX
-      ? 0
-      : left - drag.baseX;
+    centerX -
+    (drag.baseX + drag.width / 2);
 
   const dy =
-    top - drag.baseY;
+    centerY -
+    (drag.baseY + drag.height / 2);
 
   drag.el.style.transform =
-    `translate(${dx}px, ${dy}px) scale(1.03)`;
+    `translate(${dx}px, ${dy}px) scale(${drag.scale})`;
 
-  drag.lastLeft =
-    drag.lockX ? drag.baseX : left;
-
-  drag.lastTop = top;
-
-  drag.centerX =
-    drag.lastLeft + drag.width / 2;
-
-  drag.centerY =
-    top + drag.height / 2;
+  drag.centerX = centerX;
+  drag.centerY = centerY;
 }
 
 function settleDrag(drag) {
@@ -1427,6 +1515,13 @@ const dropIndicator =
 dropIndicator.className =
   "drop-indicator";
 
+/* Dashed outline marking the ghost's origin slot. */
+const dragPlaceholder =
+  document.createElement("div");
+
+dragPlaceholder.className =
+  "drag-placeholder";
+
 function hideDropIndicator() {
   dropIndicator.classList.remove("visible");
   dropIndicator.remove();
@@ -1444,53 +1539,49 @@ function updateDropIndicator(drag) {
     drag.centerY <= drag.baseY + drag.height
   ) {
     drag.dropNode = null;
+    drag.dropSpot = null;
     hideDropIndicator();
     return;
   }
 
-  const target =
-    findReorderTarget(
-      drag.container,
-      drag.selector,
-      drag.el,
-      drag.centerX,
-      drag.centerY
-    );
+  /* Hit-test against the cached geometry: no DOM reads. */
+  const spot =
+    drag.items.find(item => {
+      return (
+        drag.centerX >= item.left &&
+        drag.centerX <= item.left + item.width &&
+        drag.centerY >= item.top &&
+        drag.centerY <= item.top + item.height
+      );
+    });
 
-  if (!target) {
+  if (!spot) {
     /* Over a gap: keep the previous drop point. */
     return;
   }
 
-  const rect =
-    target.getBoundingClientRect();
-
   const before =
     drag.lockX
-      ? drag.centerY < rect.top + rect.height / 2
-      : drag.centerX < rect.left + rect.width / 2;
+      ? drag.centerY < spot.top + spot.height / 2
+      : drag.centerX < spot.left + spot.width / 2;
 
   if (
-    drag.dropNode === target &&
+    drag.dropNode === spot.el &&
     drag.dropBefore === before
   ) {
     return;
   }
 
-  drag.dropNode = target;
+  drag.dropNode = spot.el;
   drag.dropBefore = before;
+  drag.dropSpot = spot;
 
   positionDropIndicator(drag);
 }
 
 function positionDropIndicator(drag) {
-  const container = drag.container;
-  const target = drag.dropNode;
-
-  const gap =
-    parseFloat(
-      getComputedStyle(container).gap
-    ) || 12;
+  const spot = drag.dropSpot;
+  const gap = drag.gap;
 
   const style = dropIndicator.style;
 
@@ -1498,9 +1589,9 @@ function positionDropIndicator(drag) {
     /* Horizontal line between rows. */
     const y =
       drag.dropBefore
-        ? target.offsetTop - gap / 2
-        : target.offsetTop +
-          target.offsetHeight +
+        ? spot.offsetTop - gap / 2
+        : spot.offsetTop +
+          spot.height +
           gap / 2;
 
     style.left = "6px";
@@ -1512,16 +1603,16 @@ function positionDropIndicator(drag) {
     /* Vertical line beside a card. */
     const x =
       drag.dropBefore
-        ? target.offsetLeft - gap / 2
-        : target.offsetLeft +
-          target.offsetWidth +
+        ? spot.offsetLeft - gap / 2
+        : spot.offsetLeft +
+          spot.width +
           gap / 2;
 
     style.top =
-      `${target.offsetTop + 6}px`;
+      `${spot.offsetTop + 6}px`;
 
     style.height =
-      `${target.offsetHeight - 12}px`;
+      `${spot.height - 12}px`;
 
     style.left = `${x - 1.5}px`;
     style.right = "auto";
@@ -1530,13 +1621,35 @@ function positionDropIndicator(drag) {
 
   if (
     dropIndicator.parentElement !==
-    container
+    drag.container
   ) {
-    container.appendChild(dropIndicator);
+    drag.container.appendChild(
+      dropIndicator
+    );
   }
 
   dropIndicator.classList.add("visible");
 }
+
+/*
+ * Wheel-scrolling with a mouse mid-drag shifts the cached viewport
+ * geometry; re-measure so the line and hit-tests stay honest.
+ */
+window.addEventListener(
+  "scroll",
+  () => {
+    if (cardDrag?.lifted) {
+      snapshotDragGeometry(cardDrag);
+    }
+
+    if (setlistDrag) {
+      snapshotDragGeometry(setlistDrag);
+    }
+  },
+  {
+    passive: true
+  }
+);
 
 /*
  * Release: perform the one reorder. Displaced items glide to their
@@ -1545,6 +1658,7 @@ function positionDropIndicator(drag) {
  */
 function completeDrop(drag) {
   hideDropIndicator();
+  dragPlaceholder.remove();
 
   if (drag.dropNode) {
     const reference =
@@ -1604,11 +1718,16 @@ function reanchorDrag(drag) {
   const rect =
     el.getBoundingClientRect();
 
-  const dx = drag.lastLeft - rect.left;
-  const dy = drag.lastTop - rect.top;
+  const dx =
+    drag.centerX -
+    (rect.left + rect.width / 2);
+
+  const dy =
+    drag.centerY -
+    (rect.top + rect.height / 2);
 
   el.style.transform =
-    `translate(${dx}px, ${dy}px) scale(1.03)`;
+    `translate(${dx}px, ${dy}px) scale(${drag.scale})`;
 }
 
 function animateFlip(el, dx, dy) {
@@ -1833,36 +1952,6 @@ window.addEventListener(
   }
 );
 
-/*
- * The sibling under the floating item's centre, shared by the
- * library grid and the setlist. The dragged element has
- * pointer-events: none while lifted, so hit-testing sees through it.
- */
-function findReorderTarget(
-  container,
-  selector,
-  dragged,
-  x,
-  y
-) {
-  const under =
-    document.elementFromPoint(x, y);
-
-  const target =
-    under?.closest(selector);
-
-  if (
-    !target ||
-    target === dragged ||
-    target.parentElement !== container ||
-    /* A mid-glide sibling would cause swap oscillation. */
-    target.classList.contains("flip-anim")
-  ) {
-    return null;
-  }
-
-  return target;
-}
 
 
 async function persistLibraryOrder() {
@@ -2260,8 +2349,10 @@ function attachSetlistDrag(row, handle) {
         container: setlistItems,
         selector: ".setlist-item",
         pointerId: event.pointerId,
-        /* A vertical list: keep the float on its own axis. */
-        lockX: true
+        /* A vertical list: full-size row on its own axis. */
+        lockX: true,
+        ghost: false,
+        scale: 1.03
       };
 
       beginDragVisual(
