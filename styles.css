@@ -663,9 +663,9 @@ h3 {
 }
 
 /*
- * A lifted card during drag-reorder. It floats with the pointer via
- * an inline transform (so no transform here), rides above the grid,
- * and lets hit-testing see the cards underneath it.
+ * The item being reordered. A grid card stays highlighted in its
+ * slot (only the drop line moves); a setlist row floats via an
+ * inline transform. Accent border marks it as selected.
  */
 .song-card.dragging {
   box-shadow: var(--shadow-2);
@@ -717,20 +717,6 @@ h3 {
   opacity: 1;
 }
 
-/*
- * Dashed outline left in the ghost's origin slot — the same visual
- * language as the drop zone: "a place where something belongs".
- */
-.drag-placeholder {
-  position: absolute;
-  z-index: 0;
-
-  border: 2px dashed var(--border-strong);
-  border-radius: 18px;
-
-  opacity: 0.7;
-  pointer-events: none;
-}
 
 /*
  * While a card is lifted, keep the others still: without this the

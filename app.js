@@ -1268,11 +1268,10 @@ function attachCardDrag(card) {
         holdTimer: null,
         lockX: false,
         /*
-         * Grid cards shrink to a compact ghost under the finger so
-         * they never fully cover the card being hovered.
+         * Tidal-style: the card stays highlighted in its slot and
+         * only the drop line follows the finger.
          */
-        ghost: true,
-        scale: 0.5
+        float: false
       };
 
       if (event.pointerType !== "mouse") {
@@ -1364,42 +1363,25 @@ function beginDragVisual(drag, x, y) {
   drag.dropBefore = false;
   drag.dropSpot = null;
 
-  /*
-   * A compact ghost leaves its slot visibly empty; mark the origin
-   * with a dashed outline so it reads as "comes from here".
-   */
-  if (drag.ghost) {
-    const style = dragPlaceholder.style;
+  drag.el.classList.add("dragging");
 
-    style.left =
-      `${drag.el.offsetLeft}px`;
+  if (drag.float) {
+    drag.el.style.willChange =
+      "transform";
 
-    style.top =
-      `${drag.el.offsetTop}px`;
+    /* Pick-up pop, then raw pointer-following. */
+    drag.el.style.transition =
+      "transform 180ms ease";
 
-    style.width = `${drag.width}px`;
-    style.height = `${drag.height}px`;
-
-    drag.container.appendChild(
-      dragPlaceholder
-    );
+    drag.popTimer =
+      setTimeout(() => {
+        if (drag === cardDrag || drag === setlistDrag) {
+          drag.el.style.transition = "none";
+        }
+      }, 200);
   }
 
-  drag.el.classList.add("dragging");
-  drag.el.style.willChange = "transform";
-
-  /* Pick-up pop, then raw pointer-following. */
-  drag.el.style.transition =
-    "transform 180ms ease";
-
-  applyDragTransform(drag, x, y);
-
-  drag.popTimer =
-    setTimeout(() => {
-      if (drag === cardDrag || drag === setlistDrag) {
-        drag.el.style.transition = "none";
-      }
-    }, 200);
+  updateDragPosition(drag, x, y);
 
   capturePointerForDrag(drag.pointerId);
 }
@@ -1416,43 +1398,21 @@ function clampValue(value, low, high) {
 }
 
 /*
- * Float the lifted element with the pointer, confined to its own
- * container (the grid / the list): items belong to their area, so
- * they cannot be carried anywhere else on the screen. The clamped
- * position also drives the drop point (via centerX/centerY), so a
- * finger that wanders outside still targets at the pinned edge.
+ * Track the drag position, confined to the item's own container:
+ * the drop point cannot leave the grid/list area. Uses only cached
+ * geometry — no DOM reads on this path.
  *
- * Grid cards float as a half-size ghost centred under the finger;
- * setlist rows stay full-size and keep the grab offset, vertical
- * only. Uses only cached geometry — no DOM reads.
+ * Grid: the card stays put and only the pointer (→ the drop line)
+ * moves. Setlist: the full-size row also floats with the finger on
+ * the vertical axis.
  */
-function applyDragTransform(drag, x, y) {
+function updateDragPosition(drag, x, y) {
   const area = drag.areaRect;
 
   let centerX;
   let centerY;
 
-  if (drag.ghost) {
-    const halfWidth =
-      (drag.width * drag.scale) / 2;
-
-    const halfHeight =
-      (drag.height * drag.scale) / 2;
-
-    centerX =
-      clampValue(
-        x,
-        area.left + halfWidth,
-        area.right - halfWidth
-      );
-
-    centerY =
-      clampValue(
-        y,
-        area.top + halfHeight,
-        area.bottom - halfHeight
-      );
-  } else {
+  if (drag.float) {
     const top =
       clampValue(
         y - drag.grabY,
@@ -1465,18 +1425,21 @@ function applyDragTransform(drag, x, y) {
 
     centerY =
       top + drag.height / 2;
+
+    const dy =
+      centerY -
+      (drag.baseY + drag.height / 2);
+
+    drag.el.style.transform =
+      `translate(0px, ${dy}px) scale(${drag.scale})`;
+  } else {
+    /* No float: the pointer itself picks the drop point. */
+    centerX =
+      clampValue(x, area.left, area.right);
+
+    centerY =
+      clampValue(y, area.top, area.bottom);
   }
-
-  const dx =
-    centerX -
-    (drag.baseX + drag.width / 2);
-
-  const dy =
-    centerY -
-    (drag.baseY + drag.height / 2);
-
-  drag.el.style.transform =
-    `translate(${dx}px, ${dy}px) scale(${drag.scale})`;
 
   drag.centerX = centerX;
   drag.centerY = centerY;
@@ -1514,13 +1477,6 @@ const dropIndicator =
 
 dropIndicator.className =
   "drop-indicator";
-
-/* Dashed outline marking the ghost's origin slot. */
-const dragPlaceholder =
-  document.createElement("div");
-
-dragPlaceholder.className =
-  "drag-placeholder";
 
 function hideDropIndicator() {
   dropIndicator.classList.remove("visible");
@@ -1652,56 +1608,82 @@ window.addEventListener(
 );
 
 /*
- * Release: perform the one reorder. Displaced items glide to their
- * new slots (FLIP) and the floating item is re-anchored against its
- * new slot so it can settle into it from where it hovers.
+ * Release: perform the one reorder, and everything glides. Displaced
+ * items FLIP to their new slots. A floating item (setlist) settles
+ * from where it hovers; a non-floating one (grid card) FLIPs from
+ * its old slot to the new one, riding on top while it travels.
  */
 function completeDrop(drag) {
   hideDropIndicator();
-  dragPlaceholder.remove();
 
-  if (drag.dropNode) {
+  const el = drag.el;
+  const moving = Boolean(drag.dropNode);
+
+  let items = [];
+  const before = new Map();
+
+  if (moving) {
+    items = [
+      ...drag.container.querySelectorAll(
+        drag.selector
+      )
+    ];
+
+    for (const item of items) {
+      before.set(
+        item,
+        item.getBoundingClientRect()
+      );
+    }
+
     const reference =
       drag.dropBefore
         ? drag.dropNode
         : drag.dropNode.nextSibling;
 
-    const siblings = [
-      ...drag.container.querySelectorAll(
-        drag.selector
-      )
-    ].filter(el => el !== drag.el);
-
-    const before = new Map();
-
-    for (const el of siblings) {
-      before.set(
-        el,
-        el.getBoundingClientRect()
-      );
-    }
-
     drag.container.insertBefore(
-      drag.el,
+      el,
       reference
     );
+  }
 
-    for (const el of siblings) {
-      const prev = before.get(el);
+  if (drag.float) {
+    reanchorDrag(drag);
+    settleDrag(drag);
+  } else {
+    clearTimeout(drag.popTimer);
+
+    el.classList.remove("dragging");
+    el.style.willChange = "";
+
+    if (moving) {
+      /* Ride on top while gliding to the new slot. */
+      el.classList.add("drag-settle");
+
+      setTimeout(() => {
+        el.classList.remove("drag-settle");
+      }, 300);
+    }
+  }
+
+  if (moving) {
+    for (const item of items) {
+      if (drag.float && item === el) {
+        continue;
+      }
+
+      const prev = before.get(item);
       const next =
-        el.getBoundingClientRect();
+        item.getBoundingClientRect();
 
       const dx = prev.left - next.left;
       const dy = prev.top - next.top;
 
       if (dx || dy) {
-        animateFlip(el, dx, dy);
+        animateFlip(item, dx, dy);
       }
     }
   }
-
-  reanchorDrag(drag);
-  settleDrag(drag);
 }
 
 /*
@@ -1837,7 +1819,7 @@ window.addEventListener(
         }
       }
 
-      applyDragTransform(
+      updateDragPosition(
         cardDrag,
         event.clientX,
         event.clientY
@@ -1852,7 +1834,7 @@ window.addEventListener(
       setlistDrag &&
       event.pointerId === setlistDrag.pointerId
     ) {
-      applyDragTransform(
+      updateDragPosition(
         setlistDrag,
         event.clientX,
         event.clientY
@@ -2349,9 +2331,9 @@ function attachSetlistDrag(row, handle) {
         container: setlistItems,
         selector: ".setlist-item",
         pointerId: event.pointerId,
-        /* A vertical list: full-size row on its own axis. */
+        /* A vertical list: full-size row floats on its own axis. */
         lockX: true,
-        ghost: false,
+        float: true,
         scale: 1.03
       };
 
