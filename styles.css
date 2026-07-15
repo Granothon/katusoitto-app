@@ -690,13 +690,13 @@ h3 {
   z-index: 5;
   box-shadow: var(--shadow-2);
   pointer-events: none;
-  transition: transform 160ms ease;
+  transition: transform 120ms ease;
 }
 
 /* Items displaced by the drop glide to their new slots. */
 .song-card.flip-anim,
 .setlist-item.flip-anim {
-  transition: transform 150ms ease;
+  transition: transform 120ms ease;
 }
 
 /*
@@ -715,11 +715,8 @@ h3 {
   pointer-events: none;
   opacity: 0;
 
-  transition:
-    opacity 100ms ease,
-    top 120ms ease,
-    left 120ms ease,
-    height 120ms ease;
+  /* Position snaps to the finger; only the fade-in is eased. */
+  transition: opacity 90ms ease;
 }
 
 .drop-indicator.visible {

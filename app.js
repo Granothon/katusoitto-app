@@ -1475,7 +1475,7 @@ function settleDrag(drag) {
   setTimeout(() => {
     el.classList.remove("drag-settle");
     el.style.willChange = "";
-  }, 200);
+  }, 150);
 }
 
 /*
@@ -1675,7 +1675,7 @@ function completeDrop(drag) {
 
       setTimeout(() => {
         el.classList.remove("drag-settle");
-      }, 220);
+      }, 150);
     }
   }
 
@@ -1758,7 +1758,7 @@ function animateFlip(el, dx, dy) {
     done
   );
 
-  setTimeout(done, 200);
+  setTimeout(done, 150);
 }
 
 /*
