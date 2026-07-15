@@ -1,5 +1,5 @@
 const CACHE_NAME =
-  "katusoitto-app-v37";
+  "katusoitto-app-v38";
 
 const APP_FILES = [
   "./",

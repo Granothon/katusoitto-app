@@ -521,6 +521,9 @@ h3 {
  */
 
 .song-grid {
+  /* Anchors the absolutely positioned drop indicator. */
+  position: relative;
+
   display: grid;
   grid-template-columns: repeat(
     auto-fill,
@@ -678,6 +681,40 @@ h3 {
   z-index: 5;
   box-shadow: var(--shadow-2);
   pointer-events: none;
+  transition: transform 240ms ease;
+}
+
+/* Items displaced by the drop glide to their new slots. */
+.song-card.flip-anim,
+.setlist-item.flip-anim {
+  transition: transform 220ms ease;
+}
+
+/*
+ * Drop indicator: a thin accent line showing where the dragged item
+ * would land if released — Tidal-style, so the other items stay put
+ * during the drag.
+ */
+.drop-indicator {
+  position: absolute;
+  z-index: 4;
+
+  background: var(--accent);
+  border-radius: 999px;
+  box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 55%, transparent);
+
+  pointer-events: none;
+  opacity: 0;
+
+  transition:
+    opacity 120ms ease,
+    top 150ms ease,
+    left 150ms ease,
+    height 150ms ease;
+}
+
+.drop-indicator.visible {
+  opacity: 1;
 }
 
 /*
@@ -716,6 +753,9 @@ h3 {
 }
 
 .setlist-items {
+  /* Anchors the absolutely positioned drop indicator. */
+  position: relative;
+
   display: grid;
   gap: 10px;
   margin-bottom: 36px;

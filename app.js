@@ -1259,6 +1259,8 @@ function attachCardDrag(card) {
 
       cardDrag = {
         el: card,
+        container: songGrid,
+        selector: ".song-card",
         pointerId: event.pointerId,
         startX: event.clientX,
         startY: event.clientY,
@@ -1307,13 +1309,19 @@ function beginDragVisual(drag, x, y) {
   drag.baseY = rect.top;
   drag.grabX = x - rect.left;
   drag.grabY = y - rect.top;
+  drag.width = rect.width;
+  drag.height = rect.height;
+
+  /* Where the item would land if released; none yet. */
+  drag.dropNode = null;
+  drag.dropBefore = false;
 
   drag.el.classList.add("dragging");
   drag.el.style.willChange = "transform";
 
   /* Pick-up pop, then raw pointer-following. */
   drag.el.style.transition =
-    "transform 130ms ease";
+    "transform 180ms ease";
 
   applyDragTransform(drag, x, y);
 
@@ -1322,47 +1330,68 @@ function beginDragVisual(drag, x, y) {
       if (drag === cardDrag || drag === setlistDrag) {
         drag.el.style.transition = "none";
       }
-    }, 150);
+    }, 200);
 
   capturePointerForDrag(drag.pointerId);
 }
 
-function applyDragTransform(drag, x, y) {
-  const dx =
-    drag.lockX
-      ? 0
-      : x - drag.grabX - drag.baseX;
+function clampValue(value, low, high) {
+  if (high < low) {
+    return low;
+  }
 
-  const dy =
-    y - drag.grabY - drag.baseY;
-
-  drag.el.style.transform =
-    `translate(${dx}px, ${dy}px) scale(1.03)`;
+  return Math.min(
+    Math.max(value, low),
+    high
+  );
 }
 
 /*
- * The layout slot changed (re-insertion): measure it anew. The
- * transition is forced off during the measurement — otherwise a
- * still-running pick-up pop would make getBoundingClientRect return
- * a mid-animation rect and skew the float for the rest of the drag.
+ * Float the lifted element with the pointer, confined to its own
+ * container (the grid / the list): items belong to their area, so
+ * they cannot be carried anywhere else on the screen. The clamped
+ * position also drives the reordering (via centerX/centerY), so a
+ * finger that wanders outside still reorders at the pinned edge.
  */
-function remeasureDragBase(drag) {
-  const el = drag.el;
+function applyDragTransform(drag, x, y) {
+  const area =
+    drag.container.getBoundingClientRect();
 
-  const previousTransition =
-    el.style.transition;
+  const left =
+    clampValue(
+      x - drag.grabX,
+      area.left,
+      area.right - drag.width
+    );
 
-  el.style.transition = "none";
-  el.style.transform = "none";
+  const top =
+    clampValue(
+      y - drag.grabY,
+      area.top,
+      area.bottom - drag.height
+    );
 
-  const rect =
-    el.getBoundingClientRect();
+  const dx =
+    drag.lockX
+      ? 0
+      : left - drag.baseX;
 
-  drag.baseX = rect.left;
-  drag.baseY = rect.top;
+  const dy =
+    top - drag.baseY;
 
-  el.style.transition =
-    previousTransition;
+  drag.el.style.transform =
+    `translate(${dx}px, ${dy}px) scale(1.03)`;
+
+  drag.lastLeft =
+    drag.lockX ? drag.baseX : left;
+
+  drag.lastTop = top;
+
+  drag.centerX =
+    drag.lastLeft + drag.width / 2;
+
+  drag.centerY =
+    top + drag.height / 2;
 }
 
 function settleDrag(drag) {
@@ -1382,70 +1411,204 @@ function settleDrag(drag) {
   setTimeout(() => {
     el.classList.remove("drag-settle");
     el.style.willChange = "";
-  }, 240);
+  }, 280);
 }
 
 /*
- * Reorder against the pointer and FLIP-animate every sibling that
- * changed place, so the layout glides instead of teleporting.
+ * Drop indicator: while dragging, the other items stay put and a
+ * thin accent line marks where the item would land if released —
+ * a vertical line between cards in the grid, a horizontal one
+ * between rows in the setlist. The one reorder happens on release.
  */
-function reorderWithFlip(
-  container,
-  selector,
-  drag,
-  x,
-  y
-) {
+
+const dropIndicator =
+  document.createElement("div");
+
+dropIndicator.className =
+  "drop-indicator";
+
+function hideDropIndicator() {
+  dropIndicator.classList.remove("visible");
+  dropIndicator.remove();
+}
+
+function updateDropIndicator(drag) {
+  /*
+   * Back over the item's own (now empty) slot: releasing here means
+   * "no move", so clear the line.
+   */
+  if (
+    drag.centerX >= drag.baseX &&
+    drag.centerX <= drag.baseX + drag.width &&
+    drag.centerY >= drag.baseY &&
+    drag.centerY <= drag.baseY + drag.height
+  ) {
+    drag.dropNode = null;
+    hideDropIndicator();
+    return;
+  }
+
   const target =
     findReorderTarget(
-      container,
-      selector,
+      drag.container,
+      drag.selector,
       drag.el,
-      x,
-      y
+      drag.centerX,
+      drag.centerY
     );
 
   if (!target) {
-    return false;
+    /* Over a gap: keep the previous drop point. */
+    return;
   }
 
-  const siblings = [
-    ...container.querySelectorAll(selector)
-  ].filter(el => el !== drag.el);
+  const rect =
+    target.getBoundingClientRect();
 
-  const before = new Map();
+  const before =
+    drag.lockX
+      ? drag.centerY < rect.top + rect.height / 2
+      : drag.centerX < rect.left + rect.width / 2;
 
-  for (const el of siblings) {
-    before.set(
-      el,
-      el.getBoundingClientRect()
+  if (
+    drag.dropNode === target &&
+    drag.dropBefore === before
+  ) {
+    return;
+  }
+
+  drag.dropNode = target;
+  drag.dropBefore = before;
+
+  positionDropIndicator(drag);
+}
+
+function positionDropIndicator(drag) {
+  const container = drag.container;
+  const target = drag.dropNode;
+
+  const gap =
+    parseFloat(
+      getComputedStyle(container).gap
+    ) || 12;
+
+  const style = dropIndicator.style;
+
+  if (drag.lockX) {
+    /* Horizontal line between rows. */
+    const y =
+      drag.dropBefore
+        ? target.offsetTop - gap / 2
+        : target.offsetTop +
+          target.offsetHeight +
+          gap / 2;
+
+    style.left = "6px";
+    style.right = "6px";
+    style.width = "auto";
+    style.top = `${y - 1.5}px`;
+    style.height = "3px";
+  } else {
+    /* Vertical line beside a card. */
+    const x =
+      drag.dropBefore
+        ? target.offsetLeft - gap / 2
+        : target.offsetLeft +
+          target.offsetWidth +
+          gap / 2;
+
+    style.top =
+      `${target.offsetTop + 6}px`;
+
+    style.height =
+      `${target.offsetHeight - 12}px`;
+
+    style.left = `${x - 1.5}px`;
+    style.right = "auto";
+    style.width = "3px";
+  }
+
+  if (
+    dropIndicator.parentElement !==
+    container
+  ) {
+    container.appendChild(dropIndicator);
+  }
+
+  dropIndicator.classList.add("visible");
+}
+
+/*
+ * Release: perform the one reorder. Displaced items glide to their
+ * new slots (FLIP) and the floating item is re-anchored against its
+ * new slot so it can settle into it from where it hovers.
+ */
+function completeDrop(drag) {
+  hideDropIndicator();
+
+  if (drag.dropNode) {
+    const reference =
+      drag.dropBefore
+        ? drag.dropNode
+        : drag.dropNode.nextSibling;
+
+    const siblings = [
+      ...drag.container.querySelectorAll(
+        drag.selector
+      )
+    ].filter(el => el !== drag.el);
+
+    const before = new Map();
+
+    for (const el of siblings) {
+      before.set(
+        el,
+        el.getBoundingClientRect()
+      );
+    }
+
+    drag.container.insertBefore(
+      drag.el,
+      reference
     );
-  }
 
-  performReorder(
-    container,
-    drag.el,
-    target
-  );
+    for (const el of siblings) {
+      const prev = before.get(el);
+      const next =
+        el.getBoundingClientRect();
 
-  /* Keep the floating element glued to the pointer. */
-  remeasureDragBase(drag);
-  applyDragTransform(drag, x, y);
+      const dx = prev.left - next.left;
+      const dy = prev.top - next.top;
 
-  for (const el of siblings) {
-    const prev = before.get(el);
-    const next =
-      el.getBoundingClientRect();
-
-    const dx = prev.left - next.left;
-    const dy = prev.top - next.top;
-
-    if (dx || dy) {
-      animateFlip(el, dx, dy);
+      if (dx || dy) {
+        animateFlip(el, dx, dy);
+      }
     }
   }
 
-  return true;
+  reanchorDrag(drag);
+  settleDrag(drag);
+}
+
+/*
+ * Recompute the float transform against the element's (possibly
+ * new) layout slot, so the visual position stays put while the
+ * settle animation gets the right starting point.
+ */
+function reanchorDrag(drag) {
+  const el = drag.el;
+
+  el.style.transition = "none";
+  el.style.transform = "none";
+
+  const rect =
+    el.getBoundingClientRect();
+
+  const dx = drag.lastLeft - rect.left;
+  const dy = drag.lastTop - rect.top;
+
+  el.style.transform =
+    `translate(${dx}px, ${dy}px) scale(1.03)`;
 }
 
 function animateFlip(el, dx, dy) {
@@ -1509,7 +1672,7 @@ function finishCardDrag() {
   clearTimeout(cardDrag.holdTimer);
 
   if (cardDrag.lifted) {
-    settleDrag(cardDrag);
+    completeDrop(cardDrag);
     suppressNextClick = true;
     persistLibraryOrder();
   }
@@ -1561,13 +1724,7 @@ window.addEventListener(
         event.clientY
       );
 
-      reorderWithFlip(
-        songGrid,
-        ".song-card",
-        cardDrag,
-        event.clientX,
-        event.clientY
-      );
+      updateDropIndicator(cardDrag);
 
       return;
     }
@@ -1582,17 +1739,7 @@ window.addEventListener(
         event.clientY
       );
 
-      if (
-        reorderWithFlip(
-          setlistItems,
-          ".setlist-item",
-          setlistDrag,
-          event.clientX,
-          event.clientY
-        )
-      ) {
-        renumberSetlistRows();
-      }
+      updateDropIndicator(setlistDrag);
     }
   }
 );
@@ -1687,11 +1834,9 @@ window.addEventListener(
 );
 
 /*
- * Live reorder shared by the library grid and the setlist: move the
- * dragged element to the other side of whichever sibling is under
- * the pointer, so the layout reflows under the finger. The dragged
- * element has pointer-events: none while lifted, so hit-testing sees
- * through it.
+ * The sibling under the floating item's centre, shared by the
+ * library grid and the setlist. The dragged element has
+ * pointer-events: none while lifted, so hit-testing sees through it.
  */
 function findReorderTarget(
   container,
@@ -1719,26 +1864,6 @@ function findReorderTarget(
   return target;
 }
 
-function performReorder(
-  container,
-  dragged,
-  target
-) {
-  const position =
-    dragged.compareDocumentPosition(target);
-
-  if (position & Node.DOCUMENT_POSITION_FOLLOWING) {
-    container.insertBefore(
-      dragged,
-      target.nextSibling
-    );
-  } else {
-    container.insertBefore(
-      dragged,
-      target
-    );
-  }
-}
 
 async function persistLibraryOrder() {
   const orderedIds = [
@@ -2132,6 +2257,8 @@ function attachSetlistDrag(row, handle) {
 
       setlistDrag = {
         el: row,
+        container: setlistItems,
+        selector: ".setlist-item",
         pointerId: event.pointerId,
         /* A vertical list: keep the float on its own axis. */
         lockX: true
@@ -2151,8 +2278,10 @@ function finishSetlistDrag() {
     return;
   }
 
-  settleDrag(setlistDrag);
+  completeDrop(setlistDrag);
   setlistDrag = null;
+
+  renumberSetlistRows();
 
   suppressNextClick = true;
   persistSetlistOrder();
