@@ -675,19 +675,28 @@ h3 {
   pointer-events: none;
 }
 
+/*
+ * iOS keeps :hover stuck on the touched card for the whole drag,
+ * which would paint its left-edge accent bar — an extra line on top
+ * of the item. The accent border already marks the selection.
+ */
+.song-card.dragging::before {
+  opacity: 0;
+}
+
 /* Dropped: glide back into the slot, still riding on top. */
 .song-card.drag-settle,
 .setlist-item.drag-settle {
   z-index: 5;
   box-shadow: var(--shadow-2);
   pointer-events: none;
-  transition: transform 240ms ease;
+  transition: transform 160ms ease;
 }
 
 /* Items displaced by the drop glide to their new slots. */
 .song-card.flip-anim,
 .setlist-item.flip-anim {
-  transition: transform 220ms ease;
+  transition: transform 150ms ease;
 }
 
 /*
@@ -707,10 +716,10 @@ h3 {
   opacity: 0;
 
   transition:
-    opacity 120ms ease,
-    top 150ms ease,
-    left 150ms ease,
-    height 150ms ease;
+    opacity 100ms ease,
+    top 120ms ease,
+    left 120ms ease,
+    height 120ms ease;
 }
 
 .drop-indicator.visible {

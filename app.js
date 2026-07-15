@@ -1346,10 +1346,23 @@ function snapshotDragGeometry(drag) {
       };
     });
 
+  const containerStyle =
+    getComputedStyle(drag.container);
+
   drag.gap =
-    parseFloat(
-      getComputedStyle(drag.container).gap
-    ) || 12;
+    parseFloat(containerStyle.gap) || 12;
+
+  /*
+   * A one-column grid reads like a list: use horizontal drop lines
+   * between rows there instead of vertical ones beside the cards.
+   */
+  const columnCount =
+    containerStyle.gridTemplateColumns
+      .split(" ")
+      .length;
+
+  drag.horizontal =
+    drag.lockX || columnCount === 1;
 }
 
 function beginDragVisual(drag, x, y) {
@@ -1371,14 +1384,14 @@ function beginDragVisual(drag, x, y) {
 
     /* Pick-up pop, then raw pointer-following. */
     drag.el.style.transition =
-      "transform 180ms ease";
+      "transform 130ms ease";
 
     drag.popTimer =
       setTimeout(() => {
         if (drag === cardDrag || drag === setlistDrag) {
           drag.el.style.transition = "none";
         }
-      }, 200);
+      }, 150);
   }
 
   updateDragPosition(drag, x, y);
@@ -1462,7 +1475,7 @@ function settleDrag(drag) {
   setTimeout(() => {
     el.classList.remove("drag-settle");
     el.style.willChange = "";
-  }, 280);
+  }, 200);
 }
 
 /*
@@ -1517,7 +1530,7 @@ function updateDropIndicator(drag) {
   }
 
   const before =
-    drag.lockX
+    drag.horizontal
       ? drag.centerY < spot.top + spot.height / 2
       : drag.centerX < spot.left + spot.width / 2;
 
@@ -1541,7 +1554,7 @@ function positionDropIndicator(drag) {
 
   const style = dropIndicator.style;
 
-  if (drag.lockX) {
+  if (drag.horizontal) {
     /* Horizontal line between rows. */
     const y =
       drag.dropBefore
@@ -1662,7 +1675,7 @@ function completeDrop(drag) {
 
       setTimeout(() => {
         el.classList.remove("drag-settle");
-      }, 300);
+      }, 220);
     }
   }
 
@@ -1745,7 +1758,7 @@ function animateFlip(el, dx, dy) {
     done
   );
 
-  setTimeout(done, 260);
+  setTimeout(done, 200);
 }
 
 /*
