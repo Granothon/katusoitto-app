@@ -1371,6 +1371,25 @@ function beginDragVisual(drag, x, y) {
   drag.grabX = x - drag.baseX;
   drag.grabY = y - drag.baseY;
 
+  /*
+   * The item's own neighbours: dropping into the gap right next to
+   * itself would not move it, so those two gaps show no line. Skip
+   * the drop indicator (not a real item) when reading the siblings.
+   */
+  drag.selfPrev =
+    matchingSibling(
+      drag.el,
+      "previousElementSibling",
+      drag.selector
+    );
+
+  drag.selfNext =
+    matchingSibling(
+      drag.el,
+      "nextElementSibling",
+      drag.selector
+    );
+
   /* Where the item would land if released; none yet. */
   drag.dropNode = null;
   drag.dropBefore = false;
@@ -1408,6 +1427,16 @@ function clampValue(value, low, high) {
     Math.max(value, low),
     high
   );
+}
+
+function matchingSibling(el, dir, selector) {
+  let node = el[dir];
+
+  while (node && !node.matches(selector)) {
+    node = node[dir];
+  }
+
+  return node;
 }
 
 /*
@@ -1533,6 +1562,21 @@ function updateDropIndicator(drag) {
     drag.horizontal
       ? drag.centerY < spot.top + spot.height / 2
       : drag.centerX < spot.left + spot.width / 2;
+
+  /*
+   * The two gaps hugging the item's own position (just after the
+   * previous item, just before the next one) would drop it back
+   * where it already is — no line there.
+   */
+  if (
+    (spot.el === drag.selfPrev && !before) ||
+    (spot.el === drag.selfNext && before)
+  ) {
+    drag.dropNode = null;
+    drag.dropSpot = null;
+    hideDropIndicator();
+    return;
+  }
 
   if (
     drag.dropNode === spot.el &&
