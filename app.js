@@ -2344,10 +2344,13 @@ function attachSetlistDrag(row, handle) {
         container: setlistItems,
         selector: ".setlist-item",
         pointerId: event.pointerId,
-        /* A vertical list: full-size row floats on its own axis. */
+        /*
+         * Same model as the grid: the row stays highlighted in place
+         * and only the horizontal drop line moves. lockX forces the
+         * between-rows line orientation.
+         */
         lockX: true,
-        float: true,
-        scale: 1.03
+        float: false
       };
 
       beginDragVisual(
