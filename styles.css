@@ -989,8 +989,12 @@ h3 {
 
 .pdf-area {
   position: relative;
-  /* Transport bar reserves ~241px (grew by the volume row). */
-  height: calc(100dvh - 241px);
+  /*
+   * Space reserved for the header + transport bar. A single variable so
+   * focus mode (which hides the setup rows) can reclaim it in one place.
+   */
+  --pdf-reserve: 241px;
+  height: calc(100dvh - var(--pdf-reserve));
 
   overflow: auto;
 
@@ -1434,6 +1438,35 @@ h3 {
 }
 
 /*
+ * Focus mode: hide the setup controls (tempo, tuning, volume, seek) that
+ * you only touch before a gig, so the score gets the reclaimed height.
+ * Playback + song navigation stay on a slim bar.
+ */
+#playerView.focus-mode .tempo-control,
+#playerView.focus-mode .pitch-control,
+#playerView.focus-mode .volume-row,
+#playerView.focus-mode .time-row {
+  display: none;
+}
+
+#playerView.focus-mode .transport {
+  min-height: 0;
+}
+
+.focus-mode .pdf-area {
+  --pdf-reserve: 176px;
+}
+
+#playerView.focus-mode .page-touch-area {
+  bottom: 118px;
+}
+
+.focus-toggle.active {
+  color: var(--accent-strong);
+  background: var(--surface-2);
+}
+
+/*
  * Page turn settings dialog
  */
 
@@ -1648,8 +1681,12 @@ dialog::backdrop {
   }
 
   .pdf-area {
-    height: calc(100dvh - 281px);
+    --pdf-reserve: 281px;
     padding: 6px;
+  }
+
+  .focus-mode .pdf-area {
+    --pdf-reserve: 168px;
   }
 
   /* On narrow screens, put tempo on its own row below the buttons */

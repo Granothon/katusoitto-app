@@ -163,6 +163,15 @@ let setlist = [];
 let gigIndex = null;
 let gigSongOpen = false;
 
+/*
+ * Focus mode hides the setup controls (tempo, tuning, volume, seek) so the
+ * score fills the freed height during a gig. It's a global UI preference,
+ * remembered across songs and sessions.
+ */
+const FOCUS_STORAGE_KEY = "katusoitto-focus-mode";
+let focusMode =
+  localStorage.getItem(FOCUS_STORAGE_KEY) === "1";
+
 let pendingImport = {
   pdf: null,
   mp3: null
@@ -230,6 +239,9 @@ const chooseFilesButton =
 
 const backButton =
   document.querySelector("#backButton");
+
+const focusToggle =
+  document.querySelector("#focusToggle");
 
 const currentSongTitle =
   document.querySelector("#currentSongTitle");
@@ -2634,6 +2646,39 @@ function updateGigIndicator() {
 }
 
 /*
+ * Apply the focus-mode class and button state. When reFit is true and a
+ * score is open, re-render the current page so it fits the resized area.
+ */
+function updateFocusMode(reFit) {
+  playerView.classList.toggle(
+    "focus-mode",
+    focusMode
+  );
+
+  focusToggle.classList.toggle(
+    "active",
+    focusMode
+  );
+
+  focusToggle.setAttribute(
+    "aria-pressed",
+    focusMode ? "true" : "false"
+  );
+
+  focusToggle.textContent =
+    focusMode ? "⤡" : "⤢";
+
+  focusToggle.title =
+    focusMode
+      ? "Exit focus mode — show controls"
+      : "Focus mode — hide controls, maximise the score";
+
+  if (reFit && currentPdf) {
+    renderPage(currentPage);
+  }
+}
+
+/*
  * Rename a song
  */
 
@@ -2880,6 +2925,9 @@ async function openSong(id, viaGig = false) {
   );
 
   updateGigIndicator();
+
+  /* Apply the saved focus preference before the score is fitted. */
+  updateFocusMode(false);
 
   currentTempo =
     clampTempo(
@@ -4371,6 +4419,20 @@ dropZone.addEventListener(
 backButton.addEventListener(
   "click",
   closePlayer
+);
+
+focusToggle.addEventListener(
+  "click",
+  () => {
+    focusMode = !focusMode;
+
+    localStorage.setItem(
+      FOCUS_STORAGE_KEY,
+      focusMode ? "1" : "0"
+    );
+
+    updateFocusMode(true);
+  }
 );
 
 playPauseButton.addEventListener(
