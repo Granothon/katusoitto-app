@@ -1438,12 +1438,12 @@ h3 {
 }
 
 /*
- * Focus mode: hide the setup controls (tempo, tuning, volume, seek) that
- * you only touch before a gig, so the score gets the reclaimed height.
- * Playback + song navigation stay on a slim bar.
+ * Focus mode reclaims *vertical* space, so it only hides the rows that take
+ * their own line: the seek row and the volume row. Tempo (100 %) and tuning
+ * (440 Hz) share the button row here and cost no height, so they stay — on
+ * narrow phones, where they wrap onto their own rows, they're hidden too
+ * (see the media query below).
  */
-#playerView.focus-mode .tempo-control,
-#playerView.focus-mode .pitch-control,
 #playerView.focus-mode .volume-row,
 #playerView.focus-mode .time-row {
   display: none;
@@ -1687,6 +1687,12 @@ dialog::backdrop {
 
   .focus-mode .pdf-area {
     --pdf-reserve: 168px;
+  }
+
+  /* On phones tempo/tuning wrap to their own rows, so hide them too. */
+  #playerView.focus-mode .tempo-control,
+  #playerView.focus-mode .pitch-control {
+    display: none;
   }
 
   /* On narrow screens, put tempo on its own row below the buttons */
