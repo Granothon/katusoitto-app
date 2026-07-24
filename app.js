@@ -67,6 +67,14 @@ let isPlaying = false;
 let audioLoading = false;
 let audioWarmupPromise = null;
 
+/*
+ * A single master GainNode sits between both playback engines and the
+ * destination, so per-song volume is one value regardless of which
+ * engine (direct / stretch) is live. currentVolume is 0..1.
+ */
+let masterGain = null;
+let currentVolume = 1;
+
 let currentTempo = 1;
 
 /*
@@ -254,6 +262,9 @@ const restartButton =
 const nextSongButton =
   document.querySelector("#nextSongButton");
 
+const previousSongButton =
+  document.querySelector("#previousSongButton");
+
 const audioSeek =
   document.querySelector("#audioSeek");
 
@@ -268,6 +279,12 @@ const tempoValue =
 
 const pitchToggle =
   document.querySelector("#pitchToggle");
+
+const volumeSlider =
+  document.querySelector("#volumeSlider");
+
+const volumeValue =
+  document.querySelector("#volumeValue");
 
 const renameDialog =
   document.querySelector("#renameDialog");
@@ -687,7 +704,8 @@ async function createSongFromPendingFiles() {
         autoTurnEnabled: true,
         warningSeconds: 5,
         playbackRate: 1,
-        baroquePitch: false
+        baroquePitch: false,
+        volume: 1
       },
 
       pageTurns: []
@@ -1067,13 +1085,18 @@ async function importLibrary(file) {
           duration:
             entry.audio.duration || 0
         },
-        settings:
-          entry.settings || {
-            autoTurnEnabled: true,
-            warningSeconds: 5,
-            playbackRate: 1,
-            baroquePitch: false
-          },
+        /*
+         * Fill defaults first, then overlay the backup's settings, so
+         * older backups (no volume key) still get a sane volume.
+         */
+        settings: {
+          autoTurnEnabled: true,
+          warningSeconds: 5,
+          playbackRate: 1,
+          baroquePitch: false,
+          volume: 1,
+          ...(entry.settings || {})
+        },
         pageTurns:
           Array.isArray(entry.pageTurns)
             ? entry.pageTurns
@@ -2552,6 +2575,20 @@ async function gigNextSong() {
   await openGigSong();
 }
 
+async function gigPreviousSong() {
+  if (
+    gigIndex === null ||
+    gigIndex <= 0
+  ) {
+    return;
+  }
+
+  gigIndex--;
+  saveSetlistState();
+
+  await openGigSong();
+}
+
 /*
  * The gig position indicator in the player header; also gates the
  * next-song button at the end of the setlist.
@@ -2563,11 +2600,17 @@ function updateGigIndicator() {
     nextSongButton.disabled = false;
     nextSongButton.title = "Next song";
 
+    previousSongButton.disabled = false;
+    previousSongButton.title = "Previous song";
+
     return;
   }
 
   const last =
     gigIndex >= setlist.length - 1;
+
+  const first =
+    gigIndex <= 0;
 
   gigIndicator.textContent =
     `Gig ${gigIndex + 1} / ${setlist.length}` +
@@ -2581,6 +2624,13 @@ function updateGigIndicator() {
     last
       ? "Last song of the gig"
       : "Next song in the setlist";
+
+  previousSongButton.disabled = first;
+
+  previousSongButton.title =
+    first
+      ? "First song of the gig"
+      : "Previous song in the setlist";
 }
 
 /*
@@ -2843,8 +2893,18 @@ async function openSong(id, viaGig = false) {
       ? BAROQUE_SEMITONES
       : 0;
 
+  currentVolume =
+    clampVolume(
+      Number(
+        currentSong.settings?.volume ?? 1
+      )
+    );
+
+  applyVolume();
+
   updateTempoDisplay();
   updatePitchDisplay();
+  updateVolumeDisplay();
 
   try {
     await loadAudio(
@@ -3509,7 +3569,7 @@ function startDirectSource(offset) {
   source.buffer = audioBuffer;
 
   source.connect(
-    audioContext.destination
+    masterGain || audioContext.destination
   );
 
   source.onended = () => {
@@ -3581,7 +3641,7 @@ function startPlaybackFrom(offset) {
     }
 
     stretchNode.connect(
-      audioContext.destination
+      masterGain || audioContext.destination
     );
 
     stretchNode.schedule({ input: offset });
@@ -3632,6 +3692,16 @@ function ensureAudioContext() {
 
     audioContext =
       new AudioContextClass();
+
+    masterGain =
+      audioContext.createGain();
+
+    masterGain.gain.value =
+      currentVolume;
+
+    masterGain.connect(
+      audioContext.destination
+    );
   }
 
   return audioContext;
@@ -3901,6 +3971,55 @@ async function setBaroquePitch(
   }
 }
 
+function clampVolume(value) {
+  if (!Number.isFinite(value)) {
+    return 1;
+  }
+
+  return Math.min(1, Math.max(0, value));
+}
+
+function applyVolume() {
+  if (masterGain) {
+    masterGain.gain.value = currentVolume;
+  }
+}
+
+function updateVolumeDisplay() {
+  const percent =
+    Math.round(currentVolume * 100);
+
+  volumeSlider.value = String(percent);
+
+  volumeValue.textContent =
+    `${percent} %`;
+
+  volumeValue.classList.toggle(
+    "modified",
+    percent !== 100
+  );
+}
+
+async function setVolume(
+  percent,
+  save = true
+) {
+  currentVolume =
+    clampVolume(Number(percent) / 100);
+
+  applyVolume();
+  updateVolumeDisplay();
+
+  if (save && currentSong) {
+    currentSong.settings.volume =
+      currentVolume;
+
+    await saveSong(currentSong);
+
+    updateSongInMemory();
+  }
+}
+
 async function togglePlayback() {
   if (!currentSong || !audioBuffer || audioLoading) {
     return;
@@ -3979,6 +4098,31 @@ async function openNextSong() {
 
   await openSong(
     songs[nextIndex].id
+  );
+}
+
+async function openPreviousSong() {
+  if (
+    !currentSong ||
+    songs.length < 2
+  ) {
+    return;
+  }
+
+  const currentIndex =
+    songs.findIndex(song => {
+      return (
+        song.id ===
+        currentSong.id
+      );
+    });
+
+  const previousIndex =
+    (currentIndex - 1 + songs.length) %
+    songs.length;
+
+  await openSong(
+    songs[previousIndex].id
   );
 }
 
@@ -4247,6 +4391,44 @@ nextSongButton.addEventListener(
     } else {
       openNextSong();
     }
+  }
+);
+
+previousSongButton.addEventListener(
+  "click",
+  () => {
+    if (gigSongOpen && gigIndex !== null) {
+      gigPreviousSong();
+    } else {
+      openPreviousSong();
+    }
+  }
+);
+
+/*
+ * Backing-track volume. Dragging updates the gain live; the value is
+ * written to the song only on release, so we don't hammer IndexedDB.
+ */
+volumeSlider.addEventListener(
+  "input",
+  () => {
+    currentVolume =
+      clampVolume(
+        Number(volumeSlider.value) / 100
+      );
+
+    applyVolume();
+    updateVolumeDisplay();
+  }
+);
+
+volumeSlider.addEventListener(
+  "change",
+  () => {
+    setVolume(
+      Number(volumeSlider.value),
+      true
+    );
   }
 );
 

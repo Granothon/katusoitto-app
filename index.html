@@ -10,7 +10,7 @@
 
   <!--
     Content Security Policy: the app is fully local, so everything
-    loads from its own origin. No external scripts, frames, or objects. 
+    loads from its own origin. No external scripts, frames or objects. 
   -->
   <meta
     http-equiv="Content-Security-Policy"
@@ -392,7 +392,17 @@
               class="transport-button media-symbol-button"
               type="button"
               aria-label="Restart song"
-              title="Restart song"
+              title="Restart song (back to start)"
+            >
+              ↺
+            </button>
+
+            <button
+              id="previousSongButton"
+              class="transport-button media-symbol-button"
+              type="button"
+              aria-label="Previous song"
+              title="Previous song"
             >
               ⏮
             </button>
@@ -436,6 +446,36 @@
 
           <span id="duration">
             00:00
+          </span>
+        </div>
+
+        <div
+          class="volume-row"
+          role="group"
+          aria-label="Backing track volume"
+        >
+          <span
+            class="volume-icon"
+            aria-hidden="true"
+          >
+            🔈
+          </span>
+
+          <input
+            id="volumeSlider"
+            type="range"
+            min="0"
+            max="100"
+            step="1"
+            value="100"
+            aria-label="Backing track volume"
+          >
+
+          <span
+            id="volumeValue"
+            class="volume-value"
+          >
+            100 %
           </span>
         </div>
       </section>
